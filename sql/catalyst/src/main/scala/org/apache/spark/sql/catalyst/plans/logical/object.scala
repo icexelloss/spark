@@ -20,6 +20,7 @@ package org.apache.spark.sql.catalyst.plans.logical
 import scala.language.existentials
 
 import org.apache.spark.api.java.function.FilterFunction
+import org.apache.spark.api.python.PythonFunction
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.{Encoder, Row}
 import org.apache.spark.sql.catalyst.analysis.UnresolvedDeserializer
@@ -113,6 +114,28 @@ case class MapPartitions(
     func: Iterator[Any] => Iterator[Any],
     outputObjAttr: Attribute,
     child: LogicalPlan) extends ObjectConsumer with ObjectProducer
+
+/* object MapPartitionsInPandas {
+  def apply(
+      func: Array[Byte],
+      schema: StructType,
+      child: LogicalPlan): LogicalPlan =
+    MapPartitionsInPandas(
+    func,
+    schema,
+    child)
+} */
+
+case class MapPartitionsInPandas(
+    func: PythonFunction,
+    outputSchema: StructType,
+    child: LogicalPlan) extends UnaryNode {
+  override lazy val schema = outputSchema
+  override def output: Seq[Attribute] = schema.map {
+    case StructField(name, dataType, nullable, metadata)
+    => AttributeReference(name, dataType, nullable, metadata)()
+  }
+}
 
 object MapPartitionsInR {
   def apply(
@@ -519,3 +542,22 @@ case class CoGroup(
     outputObjAttr: Attribute,
     left: LogicalPlan,
     right: LogicalPlan) extends BinaryNode with ObjectProducer
+
+/* object PandasUDF {
+   def apply(
+       f: Array[Byte],
+       outputSchema: StructType,
+       child: LogicalPlan): PandasUDF
+   = PandasUDF(f, outputSchema, child)
+} */
+
+case class PandasUDF(
+    f: Array[Byte], outputSchema: StructType, child: LogicalPlan)
+    extends UnaryNode {
+  override lazy val schema = outputSchema
+
+  override def output: Seq[Attribute] = outputSchema.map {
+    case StructField(name, dataType, nullable, metadata) =>
+      AttributeReference(name, dataType, nullable, metadata)()
+  }
+}

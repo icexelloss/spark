@@ -17,7 +17,7 @@
 
 package org.apache.spark.sql.execution.arrow
 
-import java.io.ByteArrayOutputStream
+import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
 import java.nio.channels.Channels
 
 import scala.collection.JavaConverters._
@@ -25,7 +25,7 @@ import scala.collection.JavaConverters._
 import io.netty.buffer.ArrowBuf
 import org.apache.arrow.memory.{BufferAllocator, RootAllocator}
 import org.apache.arrow.vector._
-import org.apache.arrow.vector.BaseValueVector.BaseMutator
+import org.apache.arrow.vector.BaseValueVector.{BaseAccessor, BaseMutator}
 import org.apache.arrow.vector.file._
 import org.apache.arrow.vector.schema.{ArrowFieldNode, ArrowRecordBatch}
 import org.apache.arrow.vector.types.FloatingPointPrecision
@@ -33,12 +33,15 @@ import org.apache.arrow.vector.types.pojo.{ArrowType, Field, FieldType, Schema}
 import org.apache.arrow.vector.util.ByteArrayReadableSeekableByteChannel
 
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions.UnsafeRow
+import org.apache.spark.sql.catalyst.expressions.codegen.{BufferHolder, UnsafeRowWriter}
 import org.apache.spark.sql.types._
+import org.apache.spark.unsafe.types.UTF8String
 import org.apache.spark.util.Utils
 
 
 /**
- * Store Arrow data in a form that can be serialized by Spark.
+ * The bytes are in arrow file format that containing one batches
  */
 private[sql] class ArrowPayload(payload: Array[Byte]) extends Serializable {
 
@@ -162,6 +165,25 @@ private[sql] object ArrowConverters {
 
     buffers.foreach(_.release())
     recordBatch
+  }
+
+  // TODO: Clean up memory. The iterator maybe should be closable and close should free up
+  // the memory allocated by the iterator object.
+  private[sql] def toUnsafeRowsIter(
+      payloadIter: Iterator[ArrowPayload],
+      schema: StructType,
+      allocator: RootAllocator
+  ): Iterator[UnsafeRow] = {
+    payloadIter.flatMap { case payload =>
+        val bytes = payload.batchBytes
+        val inputChannel = new ByteArrayReadableSeekableByteChannel(bytes)
+        val reader = new ArrowFileReader(inputChannel, allocator)
+        val root = reader.getVectorSchemaRoot
+        // ArrowPayLoad contains only one batch.
+        reader.loadNextBatch()
+        val accessors = root.getFieldVectors.asScala.toArray.map(_.getAccessor())
+        new ArrowBackendUnsafeRowIterator(accessors, schema, root.getRowCount, schema.size)
+    }
   }
 
   /**
@@ -417,6 +439,178 @@ private[arrow] object ColumnWriter {
       case BinaryType => new BinaryColumnWriter(dtype, ordinal, allocator)
       case DateType => new DateColumnWriter(dtype, ordinal, allocator)
       case TimestampType => new TimeStampColumnWriter(dtype, ordinal, allocator)
+      case _ => throw new UnsupportedOperationException(s"Unsupported data type: $dataType")
+    }
+  }
+}
+
+private[sql] trait RowFieldWriter[T <: BaseAccessor] {
+  val unsafeRowWriter: UnsafeRowWriter
+  val arrowValueAccessor: T
+  def write(rowIndex: Int)
+}
+
+private[sql] abstract class PrimitiveRowFieldWriter[T <: BaseAccessor](
+    val ordinal: Int,
+    override val unsafeRowWriter: UnsafeRowWriter,
+    override val arrowValueAccessor: T
+) extends RowFieldWriter[T] {
+  protected def writeValue(rowIndex: Int): Unit
+  override def write(rowIndex: Int): Unit = {
+    if (arrowValueAccessor.isNull(rowIndex)) {
+      unsafeRowWriter.setNullAt(ordinal)
+    } else {
+      writeValue(rowIndex)
+    }
+  }
+}
+
+private[sql] class BooleanRowFieldWriter(
+    override val ordinal: Int,
+    override val unsafeRowWriter: UnsafeRowWriter,
+    override val arrowValueAccessor: NullableBitVector#Accessor
+) extends PrimitiveRowFieldWriter(ordinal, unsafeRowWriter, arrowValueAccessor) {
+  override def writeValue(rowIndex: Int): Unit = {
+    unsafeRowWriter.write(ordinal, arrowValueAccessor.get(rowIndex))
+  }
+}
+
+private[sql] class ShortRowFieldWriter(
+    override val ordinal: Int,
+    override val unsafeRowWriter: UnsafeRowWriter,
+    override val arrowValueAccessor: NullableSmallIntVector#Accessor
+) extends PrimitiveRowFieldWriter(ordinal, unsafeRowWriter, arrowValueAccessor) {
+  override def writeValue(rowIndex: Int): Unit = {
+    unsafeRowWriter.write(ordinal, arrowValueAccessor.get(rowIndex))
+  }
+}
+
+private[sql] class IntegerRowFieldWriter(
+    override val ordinal: Int,
+    override val unsafeRowWriter: UnsafeRowWriter,
+    override val arrowValueAccessor: NullableIntVector#Accessor
+) extends PrimitiveRowFieldWriter(ordinal, unsafeRowWriter, arrowValueAccessor) {
+  override def writeValue(rowIndex: Int): Unit = {
+    unsafeRowWriter.write(ordinal, arrowValueAccessor.get(rowIndex))
+  }
+}
+
+private[sql] class LongRowFieldWriter(
+    override val ordinal: Int,
+    override val unsafeRowWriter: UnsafeRowWriter,
+    override val arrowValueAccessor: NullableBigIntVector#Accessor
+) extends PrimitiveRowFieldWriter(ordinal, unsafeRowWriter, arrowValueAccessor) {
+  override def writeValue(rowIndex: Int): Unit = {
+    unsafeRowWriter.write(ordinal, arrowValueAccessor.get(rowIndex))
+  }
+}
+
+private[sql] class FloatRowFieldWriter(
+    override val ordinal: Int,
+    override val unsafeRowWriter: UnsafeRowWriter,
+    override val arrowValueAccessor: NullableFloat4Vector#Accessor
+) extends PrimitiveRowFieldWriter(ordinal, unsafeRowWriter, arrowValueAccessor) {
+  override def writeValue(rowIndex: Int): Unit = {
+    unsafeRowWriter.write(ordinal, arrowValueAccessor.get(rowIndex))
+  }
+}
+
+private[sql] class DoubleRowFieldWriter(
+    override val ordinal: Int,
+    override val unsafeRowWriter: UnsafeRowWriter,
+    override val arrowValueAccessor: NullableFloat8Vector#Accessor
+) extends PrimitiveRowFieldWriter(ordinal, unsafeRowWriter, arrowValueAccessor) {
+  override def writeValue(rowIndex: Int): Unit = {
+    unsafeRowWriter.write(ordinal, arrowValueAccessor.get(rowIndex))
+  }
+}
+
+private[sql] class ByteRowFieldWriter(
+    override val ordinal: Int,
+    override val unsafeRowWriter: UnsafeRowWriter,
+    override val arrowValueAccessor: NullableTinyIntVector#Accessor
+) extends PrimitiveRowFieldWriter(ordinal, unsafeRowWriter, arrowValueAccessor) {
+  override def writeValue(rowIndex: Int): Unit = {
+    unsafeRowWriter.write(ordinal, arrowValueAccessor.get(rowIndex))
+  }
+}
+
+private[sql] class UTF8StringRowFieldWriter(
+    override val ordinal: Int,
+    override val unsafeRowWriter: UnsafeRowWriter,
+    override val arrowValueAccessor: NullableVarCharVector#Accessor
+) extends PrimitiveRowFieldWriter(ordinal, unsafeRowWriter, arrowValueAccessor) {
+  override def writeValue(rowIndex: Int): Unit = {
+    unsafeRowWriter.write(ordinal, UTF8String.fromBytes(arrowValueAccessor.get(rowIndex)))
+  }
+}
+
+private[sql] class BinaryRowFieldWriter(
+    override val ordinal: Int,
+    override val unsafeRowWriter: UnsafeRowWriter,
+    override val arrowValueAccessor: NullableVarBinaryVector#Accessor
+) extends PrimitiveRowFieldWriter(ordinal, unsafeRowWriter, arrowValueAccessor) {
+  override def writeValue(rowIndex: Int): Unit = {
+    unsafeRowWriter.write(ordinal, arrowValueAccessor.get(rowIndex))
+  }
+}
+
+private[sql] class ArrowBackendUnsafeRowIterator(
+    accessors: Array[ValueVector.Accessor],
+    schema: StructType,
+    rowCount: Int,
+    columnCount: Int
+) extends Iterator[UnsafeRow] {
+  private[this] var rowIndex = 0
+  private[this] val unsafeRow = new UnsafeRow(columnCount)
+  private[this] val unsafeRowBufferHolder = new BufferHolder(unsafeRow, 0)
+  private[this] val unsafeRowWriter = new UnsafeRowWriter(unsafeRowBufferHolder, columnCount)
+  private[this] val rowFieldWriters = for (i <- 0 until columnCount)
+    yield RowFieldWriter(i, unsafeRowWriter, accessors(i), schema(i).dataType)
+
+  override def hasNext: Boolean = rowIndex < rowCount
+
+  override def next(): UnsafeRow = {
+    unsafeRowWriter.zeroOutNullBytes()
+    var i = 0
+    while (i < columnCount) {
+      rowFieldWriters(i).write(rowIndex)
+      i += 1
+    }
+    rowIndex += 1
+    unsafeRow
+  }
+}
+
+private[sql] object RowFieldWriter {
+  def apply(
+      ordinal: Int,
+      unsafeRowWriter: UnsafeRowWriter,
+      arrowAccessor: ValueVector.Accessor,
+      dataType: DataType):
+  RowFieldWriter[_] = {
+    dataType match {
+      case BooleanType => new BooleanRowFieldWriter(ordinal, unsafeRowWriter,
+        arrowAccessor.asInstanceOf[NullableBitVector#Accessor])
+      case ShortType => new ShortRowFieldWriter(ordinal, unsafeRowWriter,
+        arrowAccessor.asInstanceOf[NullableSmallIntVector#Accessor])
+      case IntegerType => new IntegerRowFieldWriter(ordinal, unsafeRowWriter,
+        arrowAccessor.asInstanceOf[NullableIntVector#Accessor])
+      case LongType => new LongRowFieldWriter(ordinal, unsafeRowWriter,
+        arrowAccessor.asInstanceOf[NullableBigIntVector#Accessor])
+      case FloatType => new FloatRowFieldWriter(ordinal, unsafeRowWriter,
+        arrowAccessor.asInstanceOf[NullableFloat4Vector#Accessor])
+      case DoubleType => new DoubleRowFieldWriter(ordinal, unsafeRowWriter,
+        arrowAccessor.asInstanceOf[NullableFloat8Vector#Accessor])
+      case ByteType => new ByteRowFieldWriter(ordinal, unsafeRowWriter, arrowAccessor
+          .asInstanceOf[NullableTinyIntVector#Accessor])
+      case StringType => new UTF8StringRowFieldWriter(ordinal, unsafeRowWriter, arrowAccessor
+          .asInstanceOf[NullableVarCharVector#Accessor])
+      case BinaryType => new BinaryRowFieldWriter(ordinal, unsafeRowWriter, arrowAccessor
+          .asInstanceOf[NullableVarBinaryVector#Accessor])
+      // TODO: Enable Date and Timestamp type with Arrow 0.3
+      // case DateType => new DateColumnWriter(ordinal, allocator)
+      // case TimestampType => new TimeStampColumnWriter(ordinal, allocator)
       case _ => throw new UnsupportedOperationException(s"Unsupported data type: $dataType")
     }
   }

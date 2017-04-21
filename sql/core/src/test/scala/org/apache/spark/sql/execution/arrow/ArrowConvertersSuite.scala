@@ -31,10 +31,11 @@ import org.scalatest.BeforeAndAfterAll
 
 import org.apache.spark.SparkException
 import org.apache.spark.sql.{DataFrame, Row}
+import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.util.DateTimeUtils
 import org.apache.spark.sql.test.SharedSQLContext
 import org.apache.spark.sql.types.{BinaryType, StructField, StructType}
 import org.apache.spark.util.Utils
-
 
 class ArrowConvertersSuite extends SharedSQLContext with BeforeAndAfterAll {
   import testImplicits._
@@ -44,6 +45,10 @@ class ArrowConvertersSuite extends SharedSQLContext with BeforeAndAfterAll {
   override def beforeAll(): Unit = {
     super.beforeAll()
     tempDataPath = Utils.createTempDir(namePrefix = "arrow").getAbsolutePath
+  }
+
+  test("pandas udf round trip") {
+
   }
 
   test("collect to arrow record batch") {
@@ -1187,7 +1192,20 @@ class ArrowConvertersSuite extends SharedSQLContext with BeforeAndAfterAll {
     // NOTE: coalesce to single partition because can only load 1 batch in validator
     val arrowPayload = df.coalesce(1).toArrowPayload.collect().head
     val tempFile = new File(tempDataPath, file)
+    val rootAllocator = new RootAllocator(Long.MaxValue)
+
+    val rows: Seq[InternalRow] = ArrowConverters.toUnsafeRowsIter(
+      Iterator(arrowPayload),
+      df.schema,
+      rootAllocator
+    ).map(_.copy()).toList
+    val rdd = spark.sparkContext.parallelize(rows)
+    val df2 = spark.internalCreateDataFrame(rdd, df.schema)
+
+    assert(df2.collectAsList() == df.collectAsList())
+
     Files.write(json, tempFile, StandardCharsets.UTF_8)
+
     validateConversion(df.schema, arrowPayload, tempFile)
   }
 
