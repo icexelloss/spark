@@ -27,7 +27,7 @@ import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.catalyst.analysis.{Star, UnresolvedAlias, UnresolvedAttribute, UnresolvedFunction}
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate._
-import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, FlatMapGroupsInR, Pivot}
+import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, FlatMapGroupsInR, PandasUDF, Pivot}
 import org.apache.spark.sql.catalyst.util.usePrettyExpression
 import org.apache.spark.sql.execution.aggregate.TypedAggregateExpression
 import org.apache.spark.sql.internal.SQLConf
@@ -389,6 +389,16 @@ class RelationalGroupedDataset protected[sql](
   def pivot(pivotColumn: String, values: java.util.List[Any]): RelationalGroupedDataset = {
     pivot(pivotColumn, values.asScala)
   }
+
+  /* private[sql] def applyGroupsInPandas(
+      f: Array[Byte],
+      outputSchema: StructType): DataFrame = {
+    Dataset.ofRows(
+      df.sparkSession,
+      PandasUDF(f, outputSchema, df.logicalPlan.output, df.logicalPlan)
+    )
+  }
+  ) */
 
   /**
    * Applies the given serialized R function `func` to each group of data. For each unique group,
