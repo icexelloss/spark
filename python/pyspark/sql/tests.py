@@ -2491,6 +2491,7 @@ class ArrowTests(ReusedPySparkTestCase):
         ReusedPySparkTestCase.setUpClass()
         cls.spark = SparkSession(cls.sc)
         cls.spark.conf.set("spark.sql.execution.arrow.enable", "true")
+        cls.spark.conf.set('spark.default.parallelism', 1)
         cls.schema = StructType([
             StructField("1_str_t", StringType(), True),
             StructField("2_int_t", IntegerType(), True),
@@ -2544,6 +2545,17 @@ class ArrowTests(ReusedPySparkTestCase):
         pdf_arrow = df.toPandas()
         self.assertFramesEqual(pdf_arrow, pdf)
 
+    def test_papply(self):
+        from pyspark.sql.functions import udf, UserDefinedFunction
+        from pyspark.sql.types import IntegerType, StructType, StructField, LongType
+        # TODO: Fix string type
+        df1 = self.spark.createDataFrame(self.data, schema=self.schema)
+        print("------------------------------------------------------")
+        func = UserDefinedFunction(
+            lambda df: df[['2_int_t', '5_double_t']],
+            StructType([StructField('2_int_t', IntegerType()), StructField('5_double_t', DoubleType())]))
+        df2 = df1.papply(func)
+        self.assertEqual(df1.select('2_int_t', '5_double_t').collect(), df2.collect())
 
 if __name__ == "__main__":
     from pyspark.sql.tests import *

@@ -39,34 +39,46 @@ case class MapPartitionsInPandasExec(
 
   override protected def doExecute(): RDD[InternalRow] = {
     // Don't need copy here because internalRowIterToPayload is `read and forget`
+    println("child")
+    println(child)
     val inputRDD = child.execute()
+    println(inputRDD.count())
     val bufferSize = inputRDD.conf.getInt("spark.buffer.size", 65536)
     val reuseWorker = inputRDD.conf.getBoolean("spark.python.worker.reuse", defaultValue = true)
     val chainedFunc = Seq(ChainedPythonFunctions(Seq(func)))
     val argOffsets = Array(Array(0))
 
     inputRDD.mapPartitionsInternal { iter =>
+      if (iter.nonEmpty) {
+        val inputArrowPayload = ArrowConverters.toPayloadIterator(iter, child.schema)
+        println(inputArrowPayload.hasNext)
+        val inputIterator = inputArrowPayload.map(_.batchBytes)
+        // TODO: This should be probably created from a global root allocator for the jvm
+        val allocator = new RootAllocator(Int.MaxValue)
+        val context = TaskContext.get()
+        // TODO: Fix memory leak. Not sure if this is enough to clean up memory
+        // context.addTaskCompletionListener(_ => allocator.close())
 
-      val inputArrowPayload = ArrowConverters.toPayloadIterator(iter, child.schema)
-      val inputIterator = inputArrowPayload.map(_.batchBytes)
-      // TODO: This should be probably created from a global root allocator for the jvm
-      val allocator = new RootAllocator(Int.MaxValue)
-      val context = TaskContext.get()
-      // TODO: Not sure if this is enough to clean up memory
-      context.addTaskCompletionListener( _ => allocator.close())
+        val outputIterator =
+          new PythonRunner(
+            chainedFunc,
+            bufferSize,
+            reuseWorker,
+            PandasUdfPythonFunctionType,
+            argOffsets
+          ).compute(inputIterator, context.partitionId(), context)
 
-      val outputIterator =
-        new PythonRunner(
-          chainedFunc,
-          bufferSize,
-          reuseWorker,
-          PandasUdfPythonFunctionType,
-          argOffsets
-        ).compute(inputIterator, context.partitionId(), context)
+        val outputArrowBytes = outputIterator.next()
+        if (outputArrowBytes != null) {
+          val outputArrowPayload = new ArrowPayload(outputArrowBytes)
+          ArrowConverters.toUnsafeRowsIter(Iterator(outputArrowPayload), schema, allocator)
+        } else {
+          Iterator.empty
+        }
 
-      val outputArrowBytes = outputIterator.next()
-      val outputArrowPayload = new ArrowPayload(outputArrowBytes)
-      ArrowConverters.toUnsafeRowsIter(Iterator(outputArrowPayload), schema, allocator)
+      } else {
+        Iterator.empty
+      }
     }
   }
 
