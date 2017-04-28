@@ -20,7 +20,7 @@ package org.apache.spark.sql.execution.python
 import org.apache.arrow.memory.RootAllocator
 
 import org.apache.spark.TaskContext
-import org.apache.spark.api.python.{ChainedPythonFunctions, PythonFunction, PythonRunner}
+import org.apache.spark.api.python.{ChainedPythonFunctions, PandasUdfPythonFunctionType, PythonFunction, PythonRunner}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference}
@@ -56,8 +56,13 @@ case class MapPartitionsInPandasExec(
       context.addTaskCompletionListener( _ => allocator.close())
 
       val outputIterator =
-        new PythonRunner(chainedFunc, bufferSize, reuseWorker, true, argOffsets)
-            .compute(inputIterator, context.partitionId(), context)
+        new PythonRunner(
+          chainedFunc,
+          bufferSize,
+          reuseWorker,
+          PandasUdfPythonFunctionType,
+          argOffsets
+        ).compute(inputIterator, context.partitionId(), context)
 
       val outputArrowBytes = outputIterator.next()
       val outputArrowPayload = new ArrowPayload(outputArrowBytes)
