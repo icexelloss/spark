@@ -159,7 +159,7 @@ private[sql] object ArrowConverters {
       allocator: RootAllocator
   ): Iterator[UnsafeRow] = {
     payloadIter.flatMap { case payload =>
-        val bytes = payload.batchBytes
+      val bytes = payload.batchBytes
         val inputChannel = new ByteArrayReadableSeekableByteChannel(bytes)
         val reader = new ArrowFileReader(inputChannel, allocator)
         val root = reader.getVectorSchemaRoot
