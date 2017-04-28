@@ -184,16 +184,23 @@ class FramedSerializer(Serializer):
 
 class ArrowSerializer(FramedSerializer):
     """
-    Serializes an Arrow stream.
+    Serializes an pyarrow.RecordBatch to/from Arrow File Format
     """
 
-    def dumps(self, obj):
-        raise NotImplementedError
+    # There is double copying here, once to the in memory output stream and once to the socket output stream
+    def dumps(self, record_batch):
+        import pyarrow as pa
+        output = pa.InMemoryOutputStream()
+        writer = pa.FileWriter(output, record_batch.schema)
+        writer.write_batch(record_batch)
+        writer.close()
+        return output.get_results().to_pybytes()
 
     def loads(self, obj):
         import pyarrow as pa
         reader = pa.FileReader(pa.BufferReader(obj))
-        return reader.read_all()
+        assert reader.num_record_batches == 1, "Cannot read more than one record batches"
+        return reader.get_batch(0)
 
     def __repr__(self):
         return "ArrowSerializer"

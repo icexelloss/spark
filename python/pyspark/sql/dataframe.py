@@ -1652,9 +1652,9 @@ class DataFrame(object):
         """
         if self.sql_ctx.getConf("spark.sql.execution.arrow.enable", "false").lower() == "true":
             try:
-                import pyarrow
-                tables = self._collectAsArrow()
-                table = pyarrow.concat_tables(tables)
+                import pyarrow as pa
+                batches = self._collectAsArrow()
+                table = pa.Table.from_batches(batches)
                 return table.to_pandas()
             except ImportError as e:
                 msg = "note: pyarrow must be installed and available on calling Python process " \
