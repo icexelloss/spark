@@ -17,18 +17,19 @@
 
 package org.apache.spark.sql.execution.arrow
 
-import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
+import java.io.{ByteArrayInputStream, ByteArrayOutputStream, DataInputStream, DataOutputStream}
 import java.nio.channels.Channels
 
 import scala.collection.JavaConverters._
 
 import io.netty.buffer.ArrowBuf
-import org.apache.arrow.memory.{BufferAllocator, RootAllocator}
+import org.apache.arrow.memory.{BaseAllocator, BufferAllocator, RootAllocator}
 import org.apache.arrow.vector._
 import org.apache.arrow.vector.BaseValueVector.{BaseAccessor, BaseMutator}
 import org.apache.arrow.vector.file._
 import org.apache.arrow.vector.schema.{ArrowFieldNode, ArrowRecordBatch}
-import org.apache.arrow.vector.types.FloatingPointPrecision
+import org.apache.arrow.vector.stream.{ArrowStreamReader, ArrowStreamWriter}
+import org.apache.arrow.vector.types.{DateUnit, FloatingPointPrecision, TimeUnit}
 import org.apache.arrow.vector.types.pojo.{ArrowType, Field, FieldType, Schema}
 import org.apache.arrow.vector.util.ByteArrayReadableSeekableByteChannel
 
@@ -38,6 +39,38 @@ import org.apache.spark.sql.catalyst.expressions.codegen.{BufferHolder, UnsafeRo
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.UTF8String
 import org.apache.spark.util.Utils
+
+trait ClosableIterator[T] extends Iterator[T] with AutoCloseable
+
+/**
+ * Stream an iter of rows to an output stream in small batches in Arrow Streaming format
+ */
+// TODO: is BufferAllocator thread safe?
+private[sql] class ArrowStreamSerializer(
+    schema: StructType,
+    allocator: BufferAllocator) {
+  // Write to out in Streaming format, this is a blocking call until all data is written
+  def dump(out: DataOutputStream, rows: Iterator[InternalRow]): Unit = {
+    val recordBatch = ArrowConverters.internalRowIterToArrowBatch(rows, schema, allocator)
+    val arrowSchema = ArrowConverters.schemaToArrowSchema(schema)
+    val root = VectorSchemaRoot.create(arrowSchema, allocator)
+    val loader = new VectorLoader(root)
+    val writer = new ArrowStreamWriter(root, null, out)
+    loader.load(recordBatch)
+    writer.start()
+    writer.writeBatch()
+    writer.close()
+  }
+
+  // load data from input stream to an iterator. The iterator allocates memory and must be closed.
+  def load(in: DataInputStream): ClosableIterator[UnsafeRow] = {
+    val reader = new ArrowStreamReader(in, allocator)
+    val root = reader.getVectorSchemaRoot
+    // Supports only one batch now
+    reader.loadNextBatch()
+    new ArrowBackendUnsafeRowIterator(root, schema, root.getRowCount, schema.size)
+  }
+}
 
 
 /**
@@ -134,7 +167,7 @@ private[sql] object ArrowConverters {
    * or the number of records in the batch equals maxRecordsInBatch.  If maxRecordsPerBatch is 0,
    * then rowIter will be fully consumed.
    */
-  private def internalRowIterToArrowBatch(
+  private[sql] def internalRowIterToArrowBatch(
       rowIter: Iterator[InternalRow],
       schema: StructType,
       allocator: BufferAllocator,
@@ -167,23 +200,19 @@ private[sql] object ArrowConverters {
     recordBatch
   }
 
-  // TODO: Clean up memory. The iterator maybe should be closable and close should free up
-  // the memory allocated by the iterator object.
   private[sql] def toUnsafeRowsIter(
-      payloadIter: Iterator[ArrowPayload],
+      payload: ArrowPayload,
       schema: StructType,
-      allocator: RootAllocator
-  ): Iterator[UnsafeRow] = {
-    payloadIter.flatMap { case payload =>
-      val bytes = payload.batchBytes
-        val inputChannel = new ByteArrayReadableSeekableByteChannel(bytes)
-        val reader = new ArrowFileReader(inputChannel, allocator)
-        val root = reader.getVectorSchemaRoot
-        // ArrowPayLoad contains only one batch.
-        reader.loadNextBatch()
-        val accessors = root.getFieldVectors.asScala.toArray.map(_.getAccessor())
-        new ArrowBackendUnsafeRowIterator(accessors, schema, root.getRowCount, schema.size)
-    }
+      allocator: BufferAllocator
+  ): ClosableIterator[UnsafeRow] = {
+    val bytes = payload.batchBytes
+    val inputChannel = new ByteArrayReadableSeekableByteChannel(bytes)
+    val reader = new ArrowFileReader(inputChannel, allocator)
+    val root = reader.getVectorSchemaRoot
+    // ArrowPayLoad contains only one batch.
+    assert(reader.getRecordBlocks.size() == 1)
+    reader.loadNextBatch()
+    new ArrowBackendUnsafeRowIterator(root, schema, root.getRowCount, schema.size)
   }
 
   /**
@@ -251,7 +280,7 @@ private[arrow] trait ColumnWriter {
  * Base class for flat arrow column writer, i.e., column without children.
  */
 private[arrow] abstract class PrimitiveColumnWriter(val ordinal: Int)
-  extends ColumnWriter {
+  extends ColumnWriter with AutoCloseable {
 
   def getFieldType(dtype: ArrowType): FieldType = FieldType.nullable(dtype)
 
@@ -285,6 +314,8 @@ private[arrow] abstract class PrimitiveColumnWriter(val ordinal: Int)
     val valueBuffers = valueVector.getBuffers(true)
     (fieldNode, valueBuffers)
   }
+
+  override def close(): Unit = valueVector.close()
 }
 
 private[arrow] class BooleanColumnWriter(dtype: ArrowType, ordinal: Int, allocator: BufferAllocator)
@@ -556,15 +587,16 @@ private[sql] class BinaryRowFieldWriter(
 }
 
 private[sql] class ArrowBackendUnsafeRowIterator(
-    accessors: Array[ValueVector.Accessor],
+    root: VectorSchemaRoot,
     schema: StructType,
     rowCount: Int,
     columnCount: Int
-) extends Iterator[UnsafeRow] {
+) extends ClosableIterator[UnsafeRow] {
   private[this] var rowIndex = 0
   private[this] val unsafeRow = new UnsafeRow(columnCount)
   private[this] val unsafeRowBufferHolder = new BufferHolder(unsafeRow, 0)
   private[this] val unsafeRowWriter = new UnsafeRowWriter(unsafeRowBufferHolder, columnCount)
+  private[this] val accessors = root.getFieldVectors.asScala.toArray.map(_.getAccessor())
   private[this] val rowFieldWriters = for (i <- 0 until columnCount)
     yield RowFieldWriter(i, unsafeRowWriter, accessors(i), schema(i).dataType)
 
@@ -580,6 +612,8 @@ private[sql] class ArrowBackendUnsafeRowIterator(
     rowIndex += 1
     unsafeRow
   }
+
+  override def close(): Unit = root.close()
 }
 
 private[sql] object RowFieldWriter {
