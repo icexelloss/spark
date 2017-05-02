@@ -50,14 +50,10 @@ case class MapPartitionsInPandasExec(
 
     inputRDD.mapPartitionsInternal { iter =>
       if (iter.nonEmpty) {
-        val inputArrowPayload = ArrowConverters.toPayloadIterator(iter, child.schema)
-        println(inputArrowPayload.hasNext)
-        val inputIterator = inputArrowPayload.map(_.batchBytes)
+        val inputIterator = ArrowConverters.toPayloadIterator(iter, child.schema).map(_.batchBytes)
         // TODO: This should be probably created from a global root allocator for the jvm
         val allocator = new RootAllocator(Int.MaxValue)
         val context = TaskContext.get()
-        // TODO: Fix memory leak. Not sure if this is enough to clean up memory
-        // context.addTaskCompletionListener(_ => allocator.close())
 
         val outputIterator =
           new PythonRunner(
@@ -69,13 +65,12 @@ case class MapPartitionsInPandasExec(
           ).compute(inputIterator, context.partitionId(), context)
 
         val outputArrowBytes = outputIterator.next()
-        if (outputArrowBytes != null) {
-          val outputArrowPayload = new ArrowPayload(outputArrowBytes)
-          ArrowConverters.toUnsafeRowsIter(Iterator(outputArrowPayload), schema, allocator)
-        } else {
-          Iterator.empty
-        }
+        val outputArrowPayload = new ArrowPayload(outputArrowBytes)
+        val resultIter = ArrowConverters.toUnsafeRowsIter(outputArrowPayload, schema, allocator)
+        // TODO: Check this is the right way
+        context.addTaskCompletionListener{_ => resultIter.close(); allocator.close()}
 
+        resultIter
       } else {
         Iterator.empty
       }
