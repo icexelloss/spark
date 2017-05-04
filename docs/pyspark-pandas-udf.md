@@ -25,6 +25,16 @@ def winsorize_udf(df):
     return mstats.winsorize(df.ix[:,0])
 
 df.groupBy('id').withColumn('v1', winsorize_udf('v1'))
+
+# or
+
+df.withColumn('v1', df.groupBy('id').select('v1').transform(winsorize_udf))
+
+# pandas equiv:
+
+df['v1'] = df.groupby('id')[['v1']].transform(mstats.winsorize)
+
+joined = pd.merge_asof(left, right, on='time', by='id')
 ```
 
 #### group withColumn (weighted mean, scalar)
@@ -50,11 +60,18 @@ df.withColumn('v1_ema', ema_udf(df.v1).over(window))
 #### group aggregation (weighted mean, scalar)
 ```
 import numpy as np
-@pandas_udf(DoubleType())
-def weighted_mean_udf(df):
-    return np.average(df.v1, weights=df.w)
+def weighted_mean(vals, weights):
+    @pandas_udf(DoubleType())
+    def weighted_mean_udf(df):
+        return np.average(df[vals], weights=df[weights])
+    return weighted_mean_udf
 
-df.groupBy('id').agg(weighted_mean_udf('v1', 'w').as('v1_wm'))
+def weighed_mean(df):
+    return np.average(df[:,0], weight=df[:,1])
+
+weighted_mean_udf = pandas_udf(weighted_mean, DoubleType())
+
+df.groupBy('id').agg(weighted_mean_udf(df.v1, df.w).as('v1_wm'))
 ```
 
 ## apply
