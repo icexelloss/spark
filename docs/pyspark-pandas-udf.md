@@ -2,6 +2,10 @@ Pyspark Pandas Udf
 ==================
 split-apply-merge is a useful pattern when analyzing data. It is implemented in many popular data analying libraries such as Spark, Pandas, R, and etc. Split and merge operations in these libraries are similar to each other, mostly implemented by a `group by` operator. For instance, Spark DataFrame has `groupBy`, Pandas DataFrame also has `groupby`. Therefore, for users familiar with either Spark DataFrame or pandas DataFrame, it is not difficult for them to understand how grouping works in the other library. However, `apply` is more native to different libraries and therefore, quite different between libraries. A pandas user knows how to winsorize grouped data might not know how to do the same calculation using pyspark, for instance. Also, the current implementation of passing data from the java executor to python executor is not effiecient, there is oppurtunity to speed it up using Apache Arrow. We are proposing new functions that allows easy and high performance split-apply-merge computation using pyspark and pandas.
 
+For more context about split-apply-merge, see:
+* http://pandas.pydata.org/pandas-docs/stable/groupby.html
+* https://www.jstatsoft.org/article/view/v040i01/v40i01.pdf
+
 Related Work
 ============
 * SPARK-13534
