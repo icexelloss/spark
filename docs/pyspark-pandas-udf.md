@@ -26,15 +26,18 @@ def winsorize_udf(df):
 
 df.groupBy('id').withColumn('v1', winsorize_udf('v1'))
 
-# or
+# or (more pandas)
 
-df.withColumn('v1', df.groupBy('id').select('v1').transform(winsorize_udf))
+df.withColumn('v1', df.groupBy('id').transform(winsorize_udf('v1')))
 
 # pandas equiv:
 
 df['v1'] = df.groupby('id')[['v1']].transform(mstats.winsorize)
 
-joined = pd.merge_asof(left, right, on='time', by='id')
+# or (more spark sql):
+
+df.withColumn('v1', winsorize_udf('v1').over(groupBy('id'))
+
 ```
 
 #### group withColumn (weighted mean, scalar)
