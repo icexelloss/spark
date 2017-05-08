@@ -24,6 +24,7 @@ from scipy.stats import mstats
 def winsorize_udf(df):
     return mstats.winsorize(df.ix[:,0])
 
+winsorize_udf('v1', df.groupby('id'))
 df.groupBy('id').withColumn('v1', winsorize_udf('v1'))
 
 # or (more pandas)
@@ -47,14 +48,17 @@ import numpy as np
 def weighted_mean_udf(df):
     return np.average(df.v1, weights=df.w)
 
-df.groupBy('id').withColumn('v1_wm', weighted_mean_udf('v1', 'w'))
+df.withColumn('v1', df.groupBy('id').agg(weighted_mean_udf('v1', 'w')))
+
 ```
 
 #### window withColumn (ema, scalar)
 ```
 @pandas_udf(DoubleType())
 def ema_udf(df):
-    return df.ix[:,0].ewm(alpha=0.5).mean().ix[:,0].iloc[-1]
+    if not len(df):
+         return np.nan
+    return df.iloc[:,0].ewm(alpha=0.5).mean().iloc[-1, 0]
 
 df.withColumn('v1_ema', ema_udf(df.v1).over(window))
 ```
@@ -66,9 +70,28 @@ import numpy as np
 @pandas_udf(DoubleType())
 def weighed_mean(df):
     return np.average(df[:,0], weight=df[:,1])
+    
+@pandas_udf(input=Series[DoubleType], Series[DoubleTYpe)
+@pandas_udf(input=DataFrame[(DoubleType(), DoubleType()])
+def weighed_mean(v, w):
+    return [np.average(v, weight=w), np.average(df[:,0], weight=df[:,1])]
+    
+df.groupBy('id').agg(weighted_mean_udf(df.v1, df.w).as('v1_wm'), max('v1'))
 
-df.groupBy('id').agg(weighted_mean_udf(df.v1, df.w).as('v1_wm'))
+
+df.groupBy('id').agg(weighted_mean_udf(df.*).as('v1_wm'), max('v1'))
+
+
+df.groupby('id').agg(['min', lambda x: x....])
+
+df.groupby('id').agg({'A': ['min', 'count'], 'B': 'max'})
+df.groupby('id').A.agg(['min', 'max'])
+
+df.groupby('id').agg({'A': {'foo': ['min', 'max']}, 'B': {'bar': ['count']}})
+df.groupby('id').A.agg({'foo': ['min', max'], 'bar': ['count']})
 ```
+
+df.groupby('id').A.agg(foo=min(), bar=min())
 
 ## apply
 #### partition apply
