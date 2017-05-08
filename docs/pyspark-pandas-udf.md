@@ -63,16 +63,9 @@ df.withColumn('v1_ema', ema_udf(df.v1).over(window))
 #### group aggregation (weighted mean, scalar)
 ```
 import numpy as np
-def weighted_mean(vals, weights):
-    @pandas_udf(DoubleType())
-    def weighted_mean_udf(df):
-        return np.average(df[vals], weights=df[weights])
-    return weighted_mean_udf
-
+@pandas_udf(DoubleType())
 def weighed_mean(df):
     return np.average(df[:,0], weight=df[:,1])
-
-weighted_mean_udf = pandas_udf(weighted_mean, DoubleType())
 
 df.groupBy('id').agg(weighted_mean_udf(df.v1, df.w).as('v1_wm'))
 ```
