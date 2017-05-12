@@ -115,17 +115,6 @@ case class MapPartitions(
     outputObjAttr: Attribute,
     child: LogicalPlan) extends ObjectConsumer with ObjectProducer
 
-/* object MapPartitionsInPandas {
-  def apply(
-      func: Array[Byte],
-      schema: StructType,
-      child: LogicalPlan): LogicalPlan =
-    MapPartitionsInPandas(
-    func,
-    schema,
-    child)
-} */
-
 case class MapPartitionsInPandas(
     func: PythonFunction,
     outputSchema: StructType,
@@ -543,21 +532,20 @@ case class CoGroup(
     left: LogicalPlan,
     right: LogicalPlan) extends BinaryNode with ObjectProducer
 
-/* object PandasUDF {
-   def apply(
-       f: Array[Byte],
-       outputSchema: StructType,
-       child: LogicalPlan): PandasUDF
-   = PandasUDF(f, outputSchema, child)
+/* object FlatMapGroupsInPandas {
+  def apply(
+      groupingExprs: Seq[Expression],
+      f: PythonFunction,
+      output: Seq[Attribute],
+      child: LogicalPlan): FlatMapGroupsInPandas = {
+    FlatMapGroupsInPandas(groupingExprs, f, output, child)
+  }
 } */
 
-case class PandasUDF(
-    f: Array[Byte], outputSchema: StructType, child: LogicalPlan)
-    extends UnaryNode {
-  override lazy val schema = outputSchema
-
-  override def output: Seq[Attribute] = outputSchema.map {
-    case StructField(name, dataType, nullable, metadata) =>
-      AttributeReference(name, dataType, nullable, metadata)()
-  }
+case class FlatMapGroupsInPandas(
+    groupingExprs: Seq[Expression],
+    f: PythonFunction,
+    override val output: Seq[Attribute],
+    child: LogicalPlan) extends UnaryNode {
+  override val producedAttributes: AttributeSet = AttributeSet(output)
 }

@@ -135,12 +135,10 @@ class FramedSerializer(Serializer):
         self._only_write_strings = sys.version_info[0:2] <= (2, 6)
 
     def dump_stream(self, iterator, stream):
-        print("FramedSerializer: dump_stream")
         for obj in iterator:
             self._write_with_length(obj, stream)
 
     def load_stream(self, stream):
-        print("FramedSerializer: load_stream")
         while True:
             try:
                 yield self._read_with_length(stream)
@@ -154,14 +152,10 @@ class FramedSerializer(Serializer):
         if len(serialized) > (1 << 31):
             raise ValueError("can not serialize object larger than 2G")
 
-        print("write len(object) to stream")
-        print(len(serialized))
         write_int(len(serialized), stream)
         if self._only_write_strings:
             stream.write(str(serialized))
         else:
-            print("write object to stream")
-            print(serialized)
             stream.write(serialized)
 
     def _read_with_length(self, stream):
@@ -195,8 +189,6 @@ class ArrowSerializer(FramedSerializer):
     """
     # There is double copying here, once to the in memory output stream and once to the socket output stream
     def dumps(self, record_batch):
-        print("dumps")
-        print(record_batch)
         import pyarrow as pa
         output = pa.InMemoryOutputStream()
         writer = pa.FileWriter(output, record_batch.schema)
@@ -205,7 +197,6 @@ class ArrowSerializer(FramedSerializer):
         return output.get_result().to_pybytes()
 
     def loads(self, obj):
-        print("loads")
         import pyarrow as pa
         reader = pa.FileReader(pa.BufferReader(obj))
         assert reader.num_record_batches == 1, "Cannot read more than one record batches"

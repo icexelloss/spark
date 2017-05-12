@@ -130,17 +130,17 @@ def read_pandas_udfs(pickleSer, infile):
     _, udf = read_single_pandas_udf(pickleSer, infile)
 
     def mapper(record_batch):
-        print("mapper")
+        # print("mapper")
         df = record_batch.to_pandas()
-        print("df")
-        print(df)
-        print(type(df))
-        import dis
-        dis.disassemble(udf.__code__)
+        # print("df")
+        # print(df)
+        # print(type(df))
+        # import dis
+        # dis.disassemble(udf.__code__)
         df2 = udf(df)
-        print("df2")
-        print(type(df2))
-        print(df2)
+        # print("df2")
+        # print(type(df2))
+        # print(df2)
         return pa.RecordBatch.from_pandas(df2)
 
     func = lambda _, it: map(mapper, it)
@@ -201,8 +201,8 @@ def main(infile, outfile):
 
         _accumulatorRegistry.clear()
         python_function_type = read_int(infile)
-        print("python_function_type")
-        print(python_function_type)
+        # print("python_function_type")
+        # print(python_function_type)
         if python_function_type == 0:
             func, profiler, deserializer, serializer = read_command(pickleSer, infile)
         elif python_function_type == 1:
@@ -215,12 +215,12 @@ def main(infile, outfile):
         init_time = time.time()
 
         def process():
-            print("in process")
-            print(deserializer)
-            print(serializer)
-            print("calling load_stream")
+            # print("in process")
+            # print(deserializer)
+            # print(serializer)
+            # print("calling load_stream")
             iterator = deserializer.load_stream(infile)
-            print("calling dump_stream")
+            # print("calling dump_stream")
             serializer.dump_stream(func(split_index, iterator), outfile)
 
         if profiler:

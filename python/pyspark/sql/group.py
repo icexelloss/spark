@@ -194,6 +194,10 @@ class GroupedData(object):
             jgd = self._jgd.pivot(pivot_col, values)
         return GroupedData(jgd, self.sql_ctx)
 
+    def apply(self, udf):
+        judf = udf._judf
+        jdf = self._jgd.flatMapGroupsInPandas(judf.func(), judf.dataType())
+        return DataFrame(jdf, self.sql_ctx)
 
 def _test():
     import doctest
