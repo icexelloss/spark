@@ -318,7 +318,6 @@ private[spark] class PythonRunner(
         }
         dataOut.flush()
         // Serialized command:
-        println("Scala: Write function type:" + functionType.value)
         dataOut.writeInt(functionType.value)
         functionType match {
           case CommandPythonFunctionType =>
@@ -504,9 +503,6 @@ private[spark] object PythonRDD extends Logging {
       case null =>
         dataOut.writeInt(SpecialLengths.NULL)
       case arr: Array[Byte] =>
-        println("writeIteratorToStream")
-        println("write")
-        println("len:" + arr.length)
         dataOut.writeInt(arr.length)
         dataOut.write(arr)
       case str: String =>

@@ -2557,6 +2557,21 @@ class ArrowTests(ReusedPySparkTestCase):
         df2 = df1.papply(func)
         self.assertEqual(df1.select('2_int_t', '5_double_t').collect(), df2.collect())
 
+    def test_gapply(self):
+        from pyspark.sql.functions import udf, col
+        df1 = self.spark.createDataFrame(self.data, schema=self.schema).drop('1_str_t')
+        schema = StructType([
+            StructField("2_int_t", IntegerType(), True),
+            StructField("3_long_t", LongType(), True),
+            StructField("4_float_t", FloatType(), True),
+            StructField("5_double_t", DoubleType(), True)])
+        func = UserDefinedFunction(lambda df: df, schema)
+        df2 = df1.groupby('2_int_t').apply(func).orderBy('2_int_t')
+
+        df1.show()
+        df2.show()
+        self.assertEqual(df1.collect(), df2.collect())
+
 if __name__ == "__main__":
     from pyspark.sql.tests import *
     if xmlrunner:

@@ -23,16 +23,16 @@ import scala.collection.JavaConverters._
 import scala.language.implicitConversions
 
 import org.apache.spark.annotation.InterfaceStability
+import org.apache.spark.api.python.PythonFunction
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.catalyst.analysis.{Star, UnresolvedAlias, UnresolvedAttribute, UnresolvedFunction}
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate._
-import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, FlatMapGroupsInR, PandasUDF, Pivot}
+import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.util.usePrettyExpression
 import org.apache.spark.sql.execution.aggregate.TypedAggregateExpression
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.NumericType
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{NumericType, StructField, StructType}
 
 /**
  * A set of methods for aggregations on a `DataFrame`, created by `Dataset.groupBy`.
@@ -390,16 +390,6 @@ class RelationalGroupedDataset protected[sql](
     pivot(pivotColumn, values.asScala)
   }
 
-  /* private[sql] def applyGroupsInPandas(
-      f: Array[Byte],
-      outputSchema: StructType): DataFrame = {
-    Dataset.ofRows(
-      df.sparkSession,
-      PandasUDF(f, outputSchema, df.logicalPlan.output, df.logicalPlan)
-    )
-  }
-  ) */
-
   /**
    * Applies the given serialized R function `func` to each group of data. For each unique group,
    * the function will be passed the group key and an iterator that contains all of the elements in
@@ -440,6 +430,26 @@ class RelationalGroupedDataset protected[sql](
           groupingAttributes,
           df.logicalPlan.output,
           df.logicalPlan))
+  }
+
+  private[sql] def flatMapGroupsInPandas(
+      f: PythonFunction,
+      outputSchema: StructType
+  ): DataFrame = {
+    val output: Seq[Attribute] = outputSchema.map {
+      case StructField(name, dataType, nullable, metadata) =>
+        AttributeReference(name, dataType, nullable, metadata)()
+    }
+
+    Dataset.ofRows(
+      df.sparkSession,
+      FlatMapGroupsInPandas(
+        groupingExprs,
+        f,
+        output,
+        df.logicalPlan
+      )
+    )
   }
 }
 
