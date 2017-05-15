@@ -135,7 +135,7 @@ private[sql] object ArrowConverters {
   private[sql] def toPayloadIterator(
       rowIter: Iterator[InternalRow],
       schema: StructType,
-      maxRecordsPerBatch: Int): Iterator[ArrowPayload] = {
+      maxRecordsPerBatch: Int = 0): Iterator[ArrowPayload] = {
     new Iterator[ArrowPayload] {
       private val _allocator = new RootAllocator(Long.MaxValue)
       private var _nextPayload = if (rowIter.nonEmpty) convert() else null
@@ -205,7 +205,7 @@ private[sql] object ArrowConverters {
       schema: StructType,
       allocator: BufferAllocator
   ): ClosableIterator[UnsafeRow] = {
-    val bytes = payload.batchBytes
+    val bytes = payload.toByteArray
     val inputChannel = new ByteArrayReadableSeekableByteChannel(bytes)
     val reader = new ArrowFileReader(inputChannel, allocator)
     val root = reader.getVectorSchemaRoot

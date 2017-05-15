@@ -61,7 +61,7 @@ case class FlatMapGroupsInPandasExec(
       grouped.flatMap { case (_, groupIter) =>
         if (groupIter.nonEmpty) {
           val inputIterator =
-            ArrowConverters.toPayloadIterator(groupIter, child.schema).map(_.batchBytes)
+            ArrowConverters.toPayloadIterator(groupIter, child.schema).map(_.toByteArray)
 
           val outputIterator =
             new PythonRunner(
