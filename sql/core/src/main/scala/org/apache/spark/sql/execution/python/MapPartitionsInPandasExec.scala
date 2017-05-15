@@ -39,10 +39,7 @@ case class MapPartitionsInPandasExec(
 
   override protected def doExecute(): RDD[InternalRow] = {
     // Don't need copy here because internalRowIterToPayload is `read and forget`
-    println("child")
-    println(child)
     val inputRDD = child.execute()
-    println(inputRDD.count())
     val bufferSize = inputRDD.conf.getInt("spark.buffer.size", 65536)
     val reuseWorker = inputRDD.conf.getBoolean("spark.python.worker.reuse", defaultValue = true)
     val chainedFunc = Seq(ChainedPythonFunctions(Seq(func)))
@@ -50,7 +47,7 @@ case class MapPartitionsInPandasExec(
 
     inputRDD.mapPartitionsInternal { iter =>
       if (iter.nonEmpty) {
-        val inputIterator = ArrowConverters.toPayloadIterator(iter, child.schema).map(_.batchBytes)
+        val inputIterator = ArrowConverters.toPayloadIterator(iter, child.schema).map(_.toByteArray)
         // TODO: This should be probably created from a global root allocator for the jvm
         val allocator = new RootAllocator(Int.MaxValue)
         val context = TaskContext.get()
