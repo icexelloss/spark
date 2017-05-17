@@ -592,6 +592,10 @@ private[sql] class ArrowBackendUnsafeRowIterator(
     rowCount: Int,
     columnCount: Int
 ) extends ClosableIterator[UnsafeRow] {
+  require(
+    root.getSchema.equals(ArrowConverters.schemaToArrowSchema(schema)),
+    s"${root.getSchema} ${ArrowConverters.schemaToArrowSchema(schema)}")
+
   private[this] var rowIndex = 0
   private[this] val unsafeRow = new UnsafeRow(columnCount)
   private[this] val unsafeRowBufferHolder = new BufferHolder(unsafeRow, 0)
@@ -603,6 +607,7 @@ private[sql] class ArrowBackendUnsafeRowIterator(
   override def hasNext: Boolean = rowIndex < rowCount
 
   override def next(): UnsafeRow = {
+    unsafeRowBufferHolder.reset()
     unsafeRowWriter.zeroOutNullBytes()
     var i = 0
     while (i < columnCount) {
@@ -610,6 +615,7 @@ private[sql] class ArrowBackendUnsafeRowIterator(
       i += 1
     }
     rowIndex += 1
+    unsafeRow.setTotalSize(unsafeRowBufferHolder.totalSize)
     unsafeRow
   }
 

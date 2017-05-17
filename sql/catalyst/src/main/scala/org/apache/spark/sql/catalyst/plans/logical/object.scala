@@ -545,7 +545,9 @@ case class CoGroup(
 case class FlatMapGroupsInPandas(
     groupingExprs: Seq[Expression],
     f: PythonFunction,
+    input: Seq[Attribute],
     override val output: Seq[Attribute],
     child: LogicalPlan) extends UnaryNode {
+  override def references: AttributeSet = AttributeSet(input)
   override val producedAttributes: AttributeSet = AttributeSet(output)
 }

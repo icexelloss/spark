@@ -376,7 +376,7 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
       case logical.FlatMapGroupsInR(f, p, b, is, os, key, value, grouping, data, objAttr, child) =>
         execution.FlatMapGroupsInRExec(f, p, b, is, os, key, value, grouping,
           data, objAttr, planLater(child)) :: Nil
-      case logical.FlatMapGroupsInPandas(grouping, f, out, child) =>
+      case logical.FlatMapGroupsInPandas(grouping, f, in, out, child) =>
         val groupingAttributes = grouping.map {
           case ne: NamedExpression => ne.toAttribute
         }

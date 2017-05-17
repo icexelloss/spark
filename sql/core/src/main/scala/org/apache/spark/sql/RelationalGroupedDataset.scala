@@ -436,6 +436,7 @@ class RelationalGroupedDataset protected[sql](
       f: PythonFunction,
       outputSchema: StructType
   ): DataFrame = {
+    val input: Seq[Attribute] = df.queryExecution.analyzed.output
     val output: Seq[Attribute] = outputSchema.map {
       case StructField(name, dataType, nullable, metadata) =>
         AttributeReference(name, dataType, nullable, metadata)()
@@ -446,6 +447,7 @@ class RelationalGroupedDataset protected[sql](
       FlatMapGroupsInPandas(
         groupingExprs,
         f,
+        input,
         output,
         df.logicalPlan
       )
