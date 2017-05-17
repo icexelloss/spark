@@ -50,10 +50,6 @@ class ArrowConvertersSuite extends SharedSQLContext with BeforeAndAfterAll {
     tempDataPath = Utils.createTempDir(namePrefix = "arrow").getAbsolutePath
   }
 
-  test("pandas udf round trip") {
-
-  }
-
   test("collect to arrow record batch") {
     val indexData = (1 to 6).toDF("i")
     val arrowPayloads = indexData.toArrowPayload.collect()
@@ -404,14 +400,12 @@ class ArrowConvertersSuite extends SharedSQLContext with BeforeAndAfterAll {
     val rootAllocator = new RootAllocator(Long.MaxValue)
 
     val rows: Seq[InternalRow] = ArrowConverters.toUnsafeRowsIter(
-      Iterator(arrowPayload),
+      arrowPayload,
       df.schema,
       rootAllocator
     ).map(_.copy()).toList
     val rdd = spark.sparkContext.parallelize(rows)
     val df2 = spark.internalCreateDataFrame(rdd, df.schema)
-
-    df2.show()
 
     assert(df2.collectAsList() == df.collectAsList())
     json.write(tempFile)

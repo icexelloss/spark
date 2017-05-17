@@ -1,4 +1,3 @@
-# -*- encoding: utf-8 -*-
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -2562,11 +2561,30 @@ class ArrowTests(ReusedPySparkTestCase):
         df1 = self.spark.createDataFrame(self.data, schema=self.schema).drop('1_str_t')
         schema = StructType([
             StructField("2_int_t", IntegerType(), True),
-            StructField("3_long_t", LongType(), True),
-            StructField("4_float_t", FloatType(), True),
-            StructField("5_double_t", DoubleType(), True)])
-        func = UserDefinedFunction(lambda df: df, schema)
+            StructField("3_long_t", LongType(), True)])
+        func = UserDefinedFunction(
+            lambda df: df[['2_int_t', '3_long_t']],
+            schema)
         df2 = df1.groupby('2_int_t').apply(func).orderBy('2_int_t')
+
+        df1.show()
+        df2.show()
+
+
+        df1.withColumn("v1", udf(lambda v: v + 1, LongType())(col('3_long_t'))).count()
+        df2.count()
+
+        self.assertEqual(df1.select('2_int_t', '3_long_t').collect(), df2.collect())
+
+    def test_groupby_agg(self):
+        from pyspark.sql.functions import udf, col, sum
+        df1 = self.spark.createDataFrame(self.data, schema=self.schema).drop('1_str_t')
+        schema = StructType([
+            StructField("2_int_t", IntegerType(), True),
+            StructField("sum", LongType(), True)])
+        import numpy as np
+        sum_udf = udf(lambda v: np.sum(v), schema)
+        df2 = df1.groupby('2_int_t').agg(sum_udf(col('3_long_t')).alias('sum')).orderBy('2_int_t')
 
         df1.show()
         df2.show()
