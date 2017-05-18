@@ -17,17 +17,33 @@ These implemented two functions: dapply and gapply in Spark R which implements t
 API
 ===
 ## withColumn (add a column to each row of the table)
-
-####
-
-#### group withColumn (normalization, vector)
+#### group withColumn (ranking, vector)
 ```
 @pandas_udf(DoubleType())
-def normalize_udf(v):
-    return (v - v.mean()) / v.std()
+def rank_udf(v):
+    return v.rank(pct=True)
 
-df.withColumn('v1', groupby('id').transform(normalize_udf(df.v1))
+df.withColumn('v1', groupby('id').transform(rank_udf(df.v1))
 ```
+input
+| id        | v1           |
+| ----------|:------------:|
+| foo       | 1.0          |
+| bar       | 2.0          |
+| foo       | 3.0          |
+| foo       | 4.0          |
+| bar       | 5.0          |
+| foo       | 6.0          |
+
+output
+| id        | v1           |
+| ----------|:------------:|
+| foo       | 0.25         |
+| bar       | 0.5          |
+| foo       | 0.5          |
+| foo       | 0.75         |
+| bar       | 1.0          |
+| foo       | 1.0          |
 
 #### group withColumn (weighted mean, scalar)
 ```
@@ -38,6 +54,25 @@ def weighted_mean_udf(v1, w):
 
 df.withColumn('v1_vm', groupby('id').agg(weighted_mean_udf(df.v1, df.w)))
 ```
+input
+| id        | v1           | w            |
+| ----------|:------------:|:------------:|
+| foo       | 1.0          | 1            |
+| bar       | 2.0          | 2            |
+| foo       | 3.0          | 1            |
+| foo       | 4.0          | 3            |
+| bar       | 5.0          | 2            |
+| foo       | 6.0          | 1            |
+
+output
+| id        | v1           | w            | v1_vm            |
+| ----------|:------------:|:------------:|:----------------:|
+| foo       | 1.0          | 1            |                  |
+| bar       | 2.0          | 2            |                  |
+| foo       | 3.0          | 1            |                  |
+| foo       | 4.0          | 3            |                  |
+| bar       | 5.0          | 2            |                  |
+| foo       | 6.0          | 1            |                  |
 
 #### window withColumn (ema, scalar)
 ```
@@ -47,6 +82,25 @@ def ema_udf(v1):
 
 df.withColumn('v1_ema', ema_udf(df.v1).over(window))
 ```
+input
+|time       | id        | v1           |
+|:----------|:----------|:------------:|
+|100        | foo       | 1.0          |
+|100        | bar       | 2.0          |
+|200        | foo       | 3.0          |
+|200        | foo       | 4.0          |
+|200        | bar       | 5.0          |
+|300        | foo       | 6.0          |
+
+output (note: the ordering of rows might change)
+|time       | id        | v1           | v1_ema        |
+|:----------|:----------|:------------:|:-------------:|
+|100        | foo       | 1.0          |               |
+|100        | bar       | 2.0          |               |
+|200        | foo       | 3.0          |               |
+|200        | foo       | 4.0          |               |
+|200        | bar       | 5.0          |               |
+|300        | foo       | 6.0          |               |
 
 ## aggregation
 #### group aggregation (weighted mean, scalar)
@@ -58,6 +112,21 @@ def weighted_mean_udf(df):
 
 df.groupBy('id').agg(weighted_mean_udf('v1', 'w').as('v1_wm'))
 ```
+input
+| id        | v1           | w            |
+| ----------|:------------:|:------------:|
+| foo       | 1.0          | 1            |
+| bar       | 2.0          | 2            |
+| foo       | 3.0          | 1            |
+| foo       | 4.0          | 3            |
+| bar       | 5.0          | 2            |
+| foo       | 6.0          | 1            |
+
+output:
+| id        | v1_wm        |
+| ----------|:------------:|
+| foo       |              |
+| bar       |              |
 
 ## apply
 
