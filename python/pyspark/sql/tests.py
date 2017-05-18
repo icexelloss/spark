@@ -2556,9 +2556,9 @@ class ArrowTests(ReusedPySparkTestCase):
         df2 = df1.papply(func)
         self.assertEqual(df1.select('2_int_t', '5_double_t').collect(), df2.collect())
 
-    def test_gapply(self):
+    def test_groupby_apply(self):
         from pyspark.sql.functions import udf, col
-        df1 = self.spark.createDataFrame(self.data, schema=self.schema).drop('1_str_t')
+        df1 = self.spark.createDataFrame(self.data, schema=self.schema)
         schema = StructType([
             StructField("2_int_t", IntegerType(), True),
             StructField("3_long_t", LongType(), True)])
@@ -2578,7 +2578,7 @@ class ArrowTests(ReusedPySparkTestCase):
 
     def test_groupby_agg(self):
         from pyspark.sql.functions import udf, col, sum
-        df1 = self.spark.createDataFrame(self.data, schema=self.schema).drop('1_str_t')
+        df1 = self.spark.createDataFrame(self.data, schema=self.schema)
         schema = StructType([
             StructField("2_int_t", IntegerType(), True),
             StructField("sum", LongType(), True)])

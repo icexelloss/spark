@@ -204,14 +204,16 @@ private[sql] object ArrowConverters {
       payload: ArrowPayload,
       schema: StructType,
       allocator: BufferAllocator
-  ): ClosableIterator[UnsafeRow] = {
+  ): ArrowBackendUnsafeRowIterator = {
     val bytes = payload.toByteArray
     val inputChannel = new ByteArrayReadableSeekableByteChannel(bytes)
     val reader = new ArrowFileReader(inputChannel, allocator)
     val root = reader.getVectorSchemaRoot
     // ArrowPayLoad contains only one batch.
     assert(reader.getRecordBlocks.size() == 1)
+    // println("before loading batch:" + allocator.toString)
     reader.loadNextBatch()
+    // println("after loading batch:" + allocator.toString)
     new ArrowBackendUnsafeRowIterator(root, schema, root.getRowCount, schema.size)
   }
 
@@ -592,9 +594,15 @@ private[sql] class ArrowBackendUnsafeRowIterator(
     rowCount: Int,
     columnCount: Int
 ) extends ClosableIterator[UnsafeRow] {
-  require(
-    root.getSchema.equals(ArrowConverters.schemaToArrowSchema(schema)),
-    s"${root.getSchema} ${ArrowConverters.schemaToArrowSchema(schema)}")
+
+  val expectedFields: Seq[Field] = ArrowConverters.schemaToArrowSchema(schema).getFields.asScala
+  val actualFields: Seq[Field] = root.getSchema.getFields.asScala
+
+  // TODO: Handle nullable field better
+  (actualFields zip expectedFields).foreach{ case (f1, f2) =>
+    require(f1.getName.equals(f2.getName) && f1.getType.equals(f2.getType),
+      s"actual: $f1 expected: $f2")
+  }
 
   private[this] var rowIndex = 0
   private[this] val unsafeRow = new UnsafeRow(columnCount)
