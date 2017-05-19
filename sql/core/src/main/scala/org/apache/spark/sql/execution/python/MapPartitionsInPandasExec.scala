@@ -65,7 +65,10 @@ case class MapPartitionsInPandasExec(
         val outputArrowPayload = new ArrowPayload(outputArrowBytes)
         val resultIter = ArrowConverters.toUnsafeRowsIter(outputArrowPayload, schema, allocator)
         // TODO: Check this is the right way
-        context.addTaskCompletionListener{_ => resultIter.close(); allocator.close()}
+        context.addTaskCompletionListener{_ =>
+          resultIter.close();
+          // allocator.close()
+        }
 
         resultIter
       } else {

@@ -75,7 +75,17 @@ case class FlatMapGroupsInPandasExec(
           val outputArrowBytes = outputIterator.next()
           val outputArrowPayload = new ArrowPayload(outputArrowBytes)
           val resultIter = ArrowConverters.toUnsafeRowsIter(outputArrowPayload, schema, allocator)
-          // TODO: Close iterator and clean up memory
+          // TODO: Check this is enough to clean up memory
+          context.addTaskCompletionListener{_ =>
+            // println(s"[${context.taskAttemptId()}] before closing iter: ${allocator.toString}")
+            resultIter.close()
+            // println(s"[${context.taskAttemptId()}] before closing allocator:
+            // ${allocator.toString}")
+            // TODO: Allocator.close() throws example exception now when
+            // the iterator has been properly closed. It
+            // appears to be some kind of race condition. Unclear.
+            // allocator.close()
+          }
           resultIter
         } else {
           Iterator.empty
