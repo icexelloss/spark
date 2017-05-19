@@ -198,7 +198,7 @@ class ArrowSerializer(FramedSerializer):
 
     def loads(self, obj):
         import pyarrow as pa
-        reader = pa.FileReader(pa.BufferReader(obj))
+        reader = pa.RecordBatchFileReader(pa.BufferReader(obj))
         assert reader.num_record_batches == 1, "Cannot read more than one record batches"
         return reader.get_batch(0)
 
