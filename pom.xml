@@ -1886,10 +1886,6 @@
             <artifactId>jackson-databind</artifactId>
           </exclusion>
           <exclusion>
-            <groupId>org.slf4j</groupId>
-            <artifactId>log4j-over-slf4j</artifactId>
-          </exclusion>
-          <exclusion>
             <groupId>io.netty</groupId>
             <artifactId>netty-handler</artifactId>
           </exclusion>
