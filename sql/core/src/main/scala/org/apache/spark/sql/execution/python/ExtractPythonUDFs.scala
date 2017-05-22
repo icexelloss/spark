@@ -26,6 +26,7 @@ import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, LogicalPlan, Proj
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution
 import org.apache.spark.sql.execution.{FilterExec, SparkPlan}
+import org.apache.spark.sql.execution.arrow.ArrowEvalPythonExec
 
 
 /**
@@ -138,7 +139,13 @@ object ExtractPythonUDFs extends Rule[SparkPlan] with PredicateHelper {
           val resultAttrs = udfs.zipWithIndex.map { case (u, i) =>
             AttributeReference(s"pythonUDF$i", u.dataType)()
           }
-          val evaluation = BatchEvalPythonExec(validUdfs, child.output ++ resultAttrs, child)
+
+          // This line enables UDF evaluation with Arrow
+          val evaluation = ArrowEvalPythonExec(validUdfs, child.output ++ resultAttrs, child)
+
+          // Uncomment for default UDF evaluation
+          //val evaluation = BatchEvalPythonExec(validUdfs, child.output ++ resultAttrs, child)
+
           attributeMap ++= validUdfs.zip(resultAttrs)
           evaluation
         } else {

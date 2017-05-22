@@ -198,12 +198,62 @@ class ArrowSerializer(FramedSerializer):
 
     def loads(self, obj):
         import pyarrow as pa
-        reader = pa.FileReader(pa.BufferReader(obj))
+        reader = pa.RecordBatchFileReader(pa.BufferReader(obj))
         assert reader.num_record_batches == 1, "Cannot read more than one record batches"
         return reader.get_batch(0)
 
     def __repr__(self):
         return "ArrowSerializer"
+
+
+class ArrowStreamSerializer(Serializer):
+
+    def __init__(self, load_to_single_batch=True):
+        self._load_to_single = load_to_single_batch
+
+    def dump_stream(self, iterator, stream):
+        import pyarrow as pa
+        write_int(1, stream)  # signal start of data block
+        writer = None
+        for batch in iterator:
+            if writer is None:
+                writer = pa.RecordBatchStreamWriter(stream, batch.schema)
+            writer.write_batch(batch)
+        if writer is not None:
+            writer.close()
+
+    def load_stream(self, stream):
+        import pyarrow as pa
+        reader = pa.RecordBatchStreamReader(stream)
+        if self._load_to_single:
+            return reader.read_all()
+        else:
+            return iter(reader)
+
+    def __repr__(self):
+        return "ArrowStreamSerializer"
+
+
+class ArrowPandasSerializer(ArrowStreamSerializer):
+
+    def __init__(self):
+        super(ArrowPandasSerializer, self).__init__(load_to_single_batch=True)
+
+    # dumps a Pandas Series to stream
+    def dump_stream(self, iterator, stream):
+        import pyarrow as pa
+        # TODO: iterator could be a tuple
+        arr = pa.Array.from_pandas(iterator)
+        batch = pa.RecordBatch.from_arrays([arr], ["_0"])
+        super(ArrowPandasSerializer, self).dump_stream([batch], stream)
+
+    # loads stream to a list of Pandas Series
+    def load_stream(self, stream):
+        table = super(ArrowPandasSerializer, self).load_stream(stream)
+        return [c.to_pandas() for c in table.itercolumns()]
+
+    def __repr__(self):
+        return "ArrowPandasSerializer"
 
 
 class BatchedSerializer(Serializer):
