@@ -163,7 +163,7 @@ private[python] case class DiskRowQueue(file: File, fields: Int) extends RowQueu
  * HybridRowQueue could be safely appended in one thread, and pulled in another thread in the same
  * time.
  */
-private[python] case class HybridRowQueue(
+private[execution] case class HybridRowQueue(
     memManager: TaskMemoryManager,
     tempDir: File,
     numFields: Int)

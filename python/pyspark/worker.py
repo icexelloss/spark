@@ -31,7 +31,7 @@ from pyspark.taskcontext import TaskContext
 from pyspark.files import SparkFiles
 from pyspark.serializers import write_with_length, write_int, read_long, \
     write_long, read_int, SpecialLengths, UTF8Deserializer, PickleSerializer, BatchedSerializer, \
-    ArrowSerializer
+    ArrowSerializer, ArrowPandasSerializer
 from pyspark import shuffle
 
 pickleSer = PickleSerializer()
@@ -118,8 +118,14 @@ def read_udfs(pickleSer, infile):
         mapper_str = "lambda a: (%s)" % (", ".join(call_udf))
         mapper = eval(mapper_str, udfs)
 
-    func = lambda _, it: map(mapper, it)
-    ser = BatchedSerializer(PickleSerializer(), 100)
+    # These lines enable UDF evaluation with Arrow
+    ser = ArrowPandasSerializer()
+    func = lambda _, series_list: mapper(series_list)  # TODO: what if not vectorizable
+
+    # Uncomment out for default UDF evaluation
+    #func = lambda _, it: map(mapper, it)
+    #ser = BatchedSerializer(PickleSerializer(), 100)
+
     # profiling is not supported for UDF
     return func, None, ser, ser
 

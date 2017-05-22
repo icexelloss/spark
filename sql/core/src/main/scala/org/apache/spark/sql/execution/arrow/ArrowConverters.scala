@@ -34,7 +34,7 @@ import org.apache.arrow.vector.types.pojo.{ArrowType, Field, FieldType, Schema}
 import org.apache.arrow.vector.util.ByteArrayReadableSeekableByteChannel
 
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.UnsafeRow
+import org.apache.spark.sql.catalyst.expressions.{GenericInternalRow, UnsafeRow}
 import org.apache.spark.sql.catalyst.expressions.codegen.{BufferHolder, UnsafeRowWriter}
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.types.UTF8String
@@ -260,6 +260,72 @@ private[sql] object ArrowConverters {
       unloader.getRecordBatch
     } {
       reader.close()
+    }
+  }
+
+  private[arrow] def writeRowsAsArrow(
+      rowIter: Iterator[InternalRow],
+      schema: StructType,
+      out: DataOutputStream): Unit = {
+    val allocator = new RootAllocator(Long.MaxValue)
+    val arrowSchema = ArrowConverters.schemaToArrowSchema(schema)
+    val root = VectorSchemaRoot.create(arrowSchema, allocator)
+    val loader = new VectorLoader(root)
+    val writer = new ArrowStreamWriter(root, null, Channels.newChannel(out))
+
+    val batch = internalRowIterToArrowBatch(rowIter, schema, allocator)
+
+    // TODO: catch exceptions
+    loader.load(batch)
+    writer.writeBatch()
+    writer.end()
+
+    batch.close()
+    root.close()
+    allocator.close()
+  }
+
+  private[arrow] def readArrowAsRows(in: DataInputStream): Iterator[InternalRow] = {
+    new Iterator[InternalRow] {
+      val _allocator = new RootAllocator(Long.MaxValue)
+      private val _reader = new ArrowStreamReader(Channels.newChannel(in), _allocator)
+      private val _root = _reader.getVectorSchemaRoot
+      private var _index = 0
+      val mutableRow = new GenericInternalRow(1)
+
+      _reader.loadNextBatch()
+
+      override def hasNext: Boolean = _index < _root.getRowCount
+
+      override def next(): InternalRow = {
+        val fieldVecs = _root.getFieldVectors
+
+        if (fieldVecs.size() == 1) {
+          mutableRow(0) = fieldVecs.get(0).getAccessor.getObject(_index)
+          _index += 1
+          if (_index >= _root.getRowCount) {
+            _index = 0
+            _reader.loadNextBatch()
+          }
+          mutableRow
+        } else {
+          val fields = _root.getFieldVectors.asScala
+
+          val genericRowData = fields.map { field =>
+            val obj: Any = field.getAccessor.getObject(_index)
+            obj
+          }.toArray
+
+          _index += 1
+
+          if (_index >= _root.getRowCount) {
+            _index = 0
+            _reader.loadNextBatch()
+          }
+
+          new GenericInternalRow(genericRowData)
+        }
+      }
     }
   }
 }
