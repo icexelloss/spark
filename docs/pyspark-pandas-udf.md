@@ -18,15 +18,19 @@ API
 ===
 ## withColumn (add a column to each row of the table)
 #### group withColumn (ranking, vector)
+In this example, the udf takes one or more pd.Series of the same size as input, and returns a pd.Series of the same size. The returned pd.Series is appended to each row of the window.
+
 ```
-@pandas_udf(DoubleType())
+w = Window.partitionBy('id')
+
+@pandas_udf(Series, DoubleType())
 def rank_udf(v):
     return v.rank(pct=True)
 
-df.withColumn('v1', groupby('id').transform(rank_udf(df.v1))
+df.withColumn('rank', rank_udf(df.v).over(w))
 ```
 input
-| id        | v1           |
+| id        | v            |
 | ----------|:------------:|
 | foo       | 1.0          |
 | bar       | 2.0          |
@@ -36,23 +40,28 @@ input
 | foo       | 6.0          |
 
 output
-| id        | v1           |
-| ----------|:------------:|
-| foo       | 0.25         |
-| bar       | 0.5          |
-| foo       | 0.5          |
-| foo       | 0.75         |
-| bar       | 1.0          |
-| foo       | 1.0          |
+| id        | v            |rank          |
+| ----------|:------------:|:------------:|
+| foo       | 1.0          |0.25          |
+| bar       | 2.0          |0.5           |
+| foo       | 3.0          |0.5           |
+| foo       | 4.0          |0.75          |
+| bar       | 5.0          |1.0           |
+| foo       | 6.0          |1.0           |
 
 #### group withColumn (weighted mean, scalar)
+In this example, the udf takes one or more pd.Series of the same size as input, and returns a scalar value.  This returned value is appended to each row of the window.
+
 ```
 import numpy as np
-@pandas_udf(DoubleType())
+
+w = Window.partitionBy('id')
+
+@pandas_udf(Scalar, DoubleType())
 def weighted_mean_udf(v1, w):
     return np.average(v1, weights=w)
 
-df.withColumn('v1_vm', groupby('id').agg(weighted_mean_udf(df.v1, df.w)))
+df.withColumn('v1_vm', weighted_mean_udf(df.v1, df.w).over(w))
 ```
 input
 | id        | v1           | w            |
@@ -67,16 +76,20 @@ input
 output
 | id        | v1           | w            | v1_vm            |
 | ----------|:------------:|:------------:|:----------------:|
-| foo       | 1.0          | 1            |                  |
-| bar       | 2.0          | 2            |                  |
-| foo       | 3.0          | 1            |                  |
-| foo       | 4.0          | 3            |                  |
-| bar       | 5.0          | 2            |                  |
-| foo       | 6.0          | 1            |                  |
+| foo       | 1.0          | 1            |3.67              |
+| bar       | 2.0          | 2            |3.5               |
+| foo       | 3.0          | 1            |3.67              |
+| foo       | 4.0          | 3            |3.67              |
+| bar       | 5.0          | 2            |3.5               |
+| foo       | 6.0          | 1            |3.67              |
 
 #### window withColumn (ema, scalar)
+In this example, the udf takes one or more pd.Series of the same size as input, and returns a scalar value. The return value is added toeach row of the window.
 ```
-@pandas_udf(DoubleType())
+
+w = Window.partitionBy('id').orderBy('time).rangeBetween(-200, 0)
+
+@pandas_udf(Scalar, DoubleType())
 def ema_udf(v1):
     return v1.ewm(alpha=0.5).mean().iloc[-1]
 
@@ -92,23 +105,23 @@ input
 |200        | bar       | 5.0          |
 |300        | foo       | 6.0          |
 
-output (note: the ordering of rows might change)
+output
 |time       | id        | v1           | v1_ema        |
 |:----------|:----------|:------------:|:-------------:|
-|100        | foo       | 1.0          |               |
-|100        | bar       | 2.0          |               |
-|200        | foo       | 3.0          |               |
-|200        | foo       | 4.0          |               |
-|200        | bar       | 5.0          |               |
-|300        | foo       | 6.0          |               |
+|100        | foo       | 1.0          |1.0            |
+|100        | bar       | 2.0          |2.0            |
+|200        | foo       | 3.0          |2.33           |
+|300        | foo       | 4.0          |3.28           |
+|200        | bar       | 5.0          |4.0            |
+|400        | foo       | 6.0          |4.73           |
 
 ## aggregation
 #### group aggregation (weighted mean, scalar)
 ```
 import numpy as np
-@pandas_udf(DoubleType())
-def weighted_mean_udf(df):
-    return np.average(df.v1, weights=df.w)
+@pandas_udf(Scalar, DoubleType())
+def weighted_mean_udf(v1, w):
+    return np.average(v1, weights=w)
 
 df.groupBy('id').agg(weighted_mean_udf('v1', 'w').as('v1_wm'))
 ```
@@ -125,8 +138,8 @@ input
 output:
 | id        | v1_wm        |
 | ----------|:------------:|
-| foo       |              |
-| bar       |              |
+| foo       |3.67          |
+| bar       |3.5           |
 
 ## apply
 
@@ -136,12 +149,12 @@ output:
 schema = StructType([StructField('id', IntegerType()), StructField("v1", DoubleType())])
 
 from scipy.stats import mstats
-@pandas_udf(schema)
+@pandas_udf(DataFrame, schema)
 def winsorize_udf(df):
     df.v = mstats.winsorize(df.v)
     return df
 
-df.papply(winsorize_udf(df.columns)(df.cols))
+df.papply(winsorize_udf(df.columns))
 ```
 This will apply `winsorize` on each partition and combine results together in the order of partitions.
 
@@ -152,11 +165,11 @@ from scipy.stats import mstats
 # This must match the returned pandas DataFrame of the udf
 schema = StructType([StructField('id', IntegerType()), StructField("v1", DoubleType())])
 
-@pandas_udf(schema)
+@pandas_udf(DataFrame, schema)
 def winsorize_udf(df):
     df.v1 = mstats.winsorize(df.v1, [0.05, 0.05])
     return df
 
-df.groupBy('id').apply(winsorize_udf('id', 'v1')(df.cols))
+df.groupBy('id').apply(winsorize_udf(df.columns))
 ```
 This will apply `winsorize` on each group and combine the results together into a pyspark DataFrame.
