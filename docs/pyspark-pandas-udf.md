@@ -17,7 +17,10 @@ These implemented two functions: dapply and gapply in Spark R which implements t
 API
 ===
 ## withColumn (add a column to each row of the table)
-#### group withColumn (ranking, vector)
+### Non overlapping windows
+Non overlapping window is sematically same as groupBy. So alternatively we can also use a `groupBy` operator.
+
+#### Non overlapping windows (Series)
 In this example, the udf takes one or more pd.Series of the same size as input, and returns a pd.Series of the same size. The returned pd.Series is appended to each row of the window.
 
 ```
@@ -51,7 +54,7 @@ output
 | bar       | 5.0          | 1.0          |
 | foo       | 6.0          | 1.0          |
 
-#### group withColumn (weighted mean, scalar)
+#### None overlapping windows (Scalar)
 In this example, the udf takes one or more pd.Series of the same size as input, and returns a scalar value.  This returned value is appended to each row of the window.
 
 ```
@@ -88,11 +91,14 @@ output
 | bar       | 5.0          | 2            | 3.5              |
 | foo       | 6.0          | 1            | 3.67             |
 
-#### window withColumn (ema, scalar)
+### Overlapping windows
+Overlapping windows is defined by using `rangeBetween` or `rowsBetween`. With overlapping windows, each row in the original table has a different window.
+
+#### Overlapping windows (Scalar)
 In this example, the udf takes one or more pd.Series of the same size as input, and returns a scalar value. The return value is added toeach row of the window.
 ```
 
-w = Window.partitionBy('id').orderBy('time).rangeBetween(-200, 0)
+w = Window.partitionBy('id').orderBy('time').rangeBetween(-200, 0)
 
 @pandas_udf(Scalar, DoubleType())
 def ema_udf(v1):
@@ -123,7 +129,9 @@ output
 | 400       | foo       | 6.0          | 4.73          |
 
 ## aggregation
-#### group aggregation (weighted mean, scalar)
+#### group aggregation (Scalar)
+In this example, the udf takes one or more pd.Series of the same size as input, and returns a scalar value. The return value is added to each group.
+
 ```
 import numpy as np
 @pandas_udf(Scalar, DoubleType())
