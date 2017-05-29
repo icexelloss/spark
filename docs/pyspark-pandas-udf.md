@@ -30,8 +30,9 @@ def rank_udf(v):
 df.withColumn('rank', rank_udf(df.v).over(w))
 ```
 input
+
 | id        | v            |
-| ----------|:------------:|
+| --------- | ------------ |
 | foo       | 1.0          |
 | bar       | 2.0          |
 | foo       | 3.0          |
@@ -40,14 +41,15 @@ input
 | foo       | 6.0          |
 
 output
-| id        | v            |rank          |
-| ----------|:------------:|:------------:|
-| foo       | 1.0          |0.25          |
-| bar       | 2.0          |0.5           |
-| foo       | 3.0          |0.5           |
-| foo       | 4.0          |0.75          |
-| bar       | 5.0          |1.0           |
-| foo       | 6.0          |1.0           |
+
+| id        | v            | rank         |
+| --------- | ------------ | ------------ |
+| foo       | 1.0          | 0.25         |
+| bar       | 2.0          | 0.5          |
+| foo       | 3.0          | 0.5          |
+| foo       | 4.0          | 0.75         |
+| bar       | 5.0          | 1.0          |
+| foo       | 6.0          | 1.0          |
 
 #### group withColumn (weighted mean, scalar)
 In this example, the udf takes one or more pd.Series of the same size as input, and returns a scalar value.  This returned value is appended to each row of the window.
@@ -63,9 +65,11 @@ def weighted_mean_udf(v1, w):
 
 df.withColumn('v1_vm', weighted_mean_udf(df.v1, df.w).over(w))
 ```
+
 input
+
 | id        | v1           | w            |
-| ----------|:------------:|:------------:|
+| --------- | ------------ | ------------ |
 | foo       | 1.0          | 1            |
 | bar       | 2.0          | 2            |
 | foo       | 3.0          | 1            |
@@ -74,14 +78,15 @@ input
 | foo       | 6.0          | 1            |
 
 output
+
 | id        | v1           | w            | v1_vm            |
-| ----------|:------------:|:------------:|:----------------:|
-| foo       | 1.0          | 1            |3.67              |
-| bar       | 2.0          | 2            |3.5               |
-| foo       | 3.0          | 1            |3.67              |
-| foo       | 4.0          | 3            |3.67              |
-| bar       | 5.0          | 2            |3.5               |
-| foo       | 6.0          | 1            |3.67              |
+| --------- | ------------ | ------------ | ---------------- |
+| foo       | 1.0          | 1            | 3.67             |
+| bar       | 2.0          | 2            | 3.5              |
+| foo       | 3.0          | 1            | 3.67             |
+| foo       | 4.0          | 3            | 3.67             |
+| bar       | 5.0          | 2            | 3.5              |
+| foo       | 6.0          | 1            | 3.67             |
 
 #### window withColumn (ema, scalar)
 In this example, the udf takes one or more pd.Series of the same size as input, and returns a scalar value. The return value is added toeach row of the window.
@@ -96,24 +101,26 @@ def ema_udf(v1):
 df.withColumn('v1_ema', ema_udf(df.v1).over(window))
 ```
 input
-|time       | id        | v1           |
-|:----------|:----------|:------------:|
-|100        | foo       | 1.0          |
-|100        | bar       | 2.0          |
-|200        | foo       | 3.0          |
-|200        | foo       | 4.0          |
-|200        | bar       | 5.0          |
-|300        | foo       | 6.0          |
+
+| time      | id        | v1           |
+| --------- | --------- | ------------ |
+| 100       | foo       | 1.0          |
+| 100       | bar       | 2.0          |
+| 200       | foo       | 3.0          |
+| 200       | foo       | 4.0          |
+| 200       | bar       | 5.0          |
+| 300       | foo       | 6.0          |
 
 output
+
 |time       | id        | v1           | v1_ema        |
-|:----------|:----------|:------------:|:-------------:|
-|100        | foo       | 1.0          |1.0            |
-|100        | bar       | 2.0          |2.0            |
-|200        | foo       | 3.0          |2.33           |
-|300        | foo       | 4.0          |3.28           |
-|200        | bar       | 5.0          |4.0            |
-|400        | foo       | 6.0          |4.73           |
+| --------- | --------- | ------------ | ------------- |
+| 100       | foo       | 1.0          | 1.0           |
+| 100       | bar       | 2.0          | 2.0           |
+| 200       | foo       | 3.0          | 2.33          |
+| 300       | foo       | 4.0          | 3.28          |
+| 200       | bar       | 5.0          | 4.0           |
+| 400       | foo       | 6.0          | 4.73          |
 
 ## aggregation
 #### group aggregation (weighted mean, scalar)
@@ -125,9 +132,11 @@ def weighted_mean_udf(v1, w):
 
 df.groupBy('id').agg(weighted_mean_udf('v1', 'w').as('v1_wm'))
 ```
+
 input
+
 | id        | v1           | w            |
-| ----------|:------------:|:------------:|
+| --------- | ------------ | ------------ |
 | foo       | 1.0          | 1            |
 | bar       | 2.0          | 2            |
 | foo       | 3.0          | 1            |
@@ -135,11 +144,12 @@ input
 | bar       | 5.0          | 2            |
 | foo       | 6.0          | 1            |
 
-output:
+output
+
 | id        | v1_wm        |
-| ----------|:------------:|
-| foo       |3.67          |
-| bar       |3.5           |
+| --------- | ------------ |
+| foo       | 3.67         |
+| bar       | 3.5          |
 
 ## apply
 
