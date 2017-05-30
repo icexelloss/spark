@@ -138,7 +138,7 @@ import numpy as np
 def weighted_mean_udf(v1, w):
     return np.average(v1, weights=w)
 
-df.groupBy('id').agg(weighted_mean_udf('v1', 'w').as('v1_wm'))
+df.groupBy('id').agg(weighted_mean_udf(df.v1, df.w).as('v1_wm'))
 ```
 
 input
