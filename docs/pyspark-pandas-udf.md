@@ -16,7 +16,7 @@ These implemented two functions: dapply and gapply in Spark R which implements t
 
 API
 ===
-# Defition of pandas udf
+# Definition of pandas udf
 We introduce a `pandas_udf` decorator that allows to define a user defined function that operates on pandas data structure such as `pandas.Series` and `pandas.DataFrame`.
 
 There are three parts to a udf: the input, the output and the function. To illustrate this, consider the following example:
