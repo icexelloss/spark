@@ -39,8 +39,8 @@ In addition to `pandas.Series`, we also want to support function that takes `pan
 
 ```
 @pandas_udf(SeriesType(DoubleType()))
-def bar(df):
-    return df.v1 + df.v2 + df.v3 + df.v4 + df.v5
+def bar(pdf):
+    return pdf.v1 + pdf.v2 + pdf.v3 + pdf.v4 + pdf.v5
 udf_column = bar(df[['v1', 'v2', 'v3', 'v4', 'v5']])
 ```
 
@@ -283,9 +283,9 @@ In this example, the udf takes a `pandas.DataFrame` and returns a `pandas.DataFr
 schema = df.schema
 
 @pandas_udf(schema)
-def normalize(df):
-    df.v1 = (df.v1 - df.v1.mean()) / df.v1.std()
-    return df
+def normalize(pdf):
+    pdf.v1 = (pdf.v1 - pdf.v1.mean()) / pdf.v1.std()
+    return pdf
 
 df.groupBy('id').apply(normalize(df))
 ```
