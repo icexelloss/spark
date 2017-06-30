@@ -16,17 +16,97 @@ These implemented two functions: dapply and gapply in Spark R which implements t
 
 API
 ===
+# Defition of pandas udf
+We introduce a `pandas_udf` decorator that allows to define a user defined function that operates on pandas data structure such as `pandas.Series` and `pandas.DataFrame`.
+
+There are three parts to a udf: the input, the output and the function. To illustrate this, consider the following example:
+
+```
+@pandas_udf(SeriesType(DoubleType()))
+def foo(v, w):
+    return v * w
+
+df = ...
+udf_column = foo(df.v, df.w)
+```
+
+This defines a udf that takes two input column: `df.v` and `df.w` and multiply them. The input to `def foo(v, w)` are pandas Series, the output `v * w` is also a pandas Series.
+
+## Input
+The input is defined in `foo(df.v, df.w)`. This defines the input to the function: column `df.v` and column `df.w`. As the result, these two columns will be converted into two pandas Series and pass into the function `def foo(v, w)`. Natually, the defition `def foo(v, w)` must match the invocation `foo(df.v, df.w)`, otherwise an exception will be thrown to the user.
+
+In addition to `pandas.Series`, we also want to support function that takes `pandas.DataFrame` as input, this is useful when the function needs to operate on many columns, as illustrated below:
+
+```
+@pandas_udf(SeriesType(DoubleType()))
+def bar(df):
+    return df.v1 + df.v2 + df.v3 + df.v4 + df.v5
+udf_column = bar(df[['v1', 'v2', 'v3', 'v4', 'v5']])
+```
+
+## Output
+The output is defined in `@pandas_udf(SeriesType(DoubleType()))`. This defines the output of the function to be a `pandas.Series` of doubles. This must match the return value, i.e. `return v * w`, otherwise an exception will be thrown to the user.
+
+In addition to `pandas.Series`, we also want to support function that returns a `scalar` value as well as a `pandas.DataFrame`, as illustrated below:
+
+Scalar:
+```
+@pandas_udf(DoubleType())
+def foo(v, w):
+    return np.average(v, w)
+```
+pandas.DataFrame:
+```
+@pandas_udf(DataFrameType([StructField('v1', DoubleType()), StructField('v2', DoubleType())]))
+def foo(v, w):
+    v1 = v + 1
+    v2 = w * v1
+    return pd.DataFrame([v1, v2])
+```
+
+# Use of pandas udf
 ## withColumn (add a column to each row of the table)
+### Vectorized row operations
+In this example the udf takes one or more `pandas.Series` of the same size, returns a `pandas.Series` of the same size. The returned `pandas.Series` it appeded to each row. How data in spark is grouped into pandas.Series is implementation detail and the user should not reply on it.
+```
+@pandas_udf(SeriesType(DoubleType()))
+def plus(v1, v2):
+    return v1 + v2
+
+df.withColumn('sum', plus(df.v1, df.v2))
+```
+input
+
+| id        | v1           | v2           |
+| --------- | ------------ | ------------ |
+| foo       | 1.0          | 1            |
+| bar       | 2.0          | 2            |
+| foo       | 3.0          | 1            |
+| foo       | 4.0          | 3            |
+| bar       | 5.0          | 2            |
+| foo       | 6.0          | 1            |
+
+output
+
+| id        | v1           | v2           | sum         |
+| --------- | ------------ | ------------ | ------------|
+| foo       | 1.0          | 1            | 2.0         |
+| bar       | 2.0          | 2            | 4.0         |
+| foo       | 3.0          | 1            | 4.0         |
+| foo       | 4.0          | 3            | 7.0         |
+| bar       | 5.0          | 2            | 7.0         |
+| foo       | 6.0          | 1            | 7.0         |
+
 ### Non overlapping windows
-Non overlapping window is sematically same as groupBy. So alternatively we can also use a `groupBy` operator.
+Non overlapping window is sematically same as `groupBy`. So alternatively we can also use a `groupBy` operator.
 
 #### Non overlapping windows (Series)
-In this example, the udf takes one or more pd.Series of the same size as input, and returns a pd.Series of the same size. The returned pd.Series is appended to each row of the window.
+In this example, the udf takes one or more `pandas.Series` of the same size, and returns a `pandas.Series` of the same size. The returned Series is joined with rows of the window.
 
 ```
 w = Window.partitionBy('id')
 
-@pandas_udf(Series, DoubleType())
+@pandas_udf(SeriesType(DoubleType()))
 def rank_udf(v):
     return v.rank(pct=True)
 
@@ -34,14 +114,14 @@ df.withColumn('rank', rank_udf(df.v).over(w))
 ```
 input
 
-| id        | v            |
-| --------- | ------------ |
-| foo       | 1.0          |
-| bar       | 2.0          |
-| foo       | 3.0          |
-| foo       | 4.0          |
-| bar       | 5.0          |
-| foo       | 6.0          |
+| id        | v1            |
+| --------- | ------------- |
+| foo       | 1.0           |
+| bar       | 2.0           |
+| foo       | 3.0           |
+| foo       | 4.0           |
+| bar       | 5.0           |
+| foo       | 6.0           |
 
 output
 
@@ -55,14 +135,14 @@ output
 | foo       | 6.0          | 1.0          |
 
 #### None overlapping windows (Scalar)
-In this example, the udf takes one or more pd.Series of the same size as input, and returns a scalar value.  This returned value is appended to each row of the window.
+In this example, the udf takes one or more pd.Series of the same size, and returns a scalar value. The return value is appended to each row of the window.
 
 ```
 import numpy as np
 
 w = Window.partitionBy('id')
 
-@pandas_udf(Scalar, DoubleType())
+@pandas_udf(DoubleType())
 def weighted_mean_udf(v1, w):
     return np.average(v1, weights=w)
 
@@ -95,12 +175,12 @@ output
 Overlapping windows is defined by using `rangeBetween` or `rowsBetween`. With overlapping windows, each row in the original table has a different window.
 
 #### Overlapping windows (Scalar)
-In this example, the udf takes one or more pd.Series of the same size as input, and returns a scalar value. The return value is added toeach row of the window.
+In this example, the udf takes one or more `pandas.Series` of the same size, and returns a scalar value. The return value is added to each row of the window.
 ```
 
 w = Window.partitionBy('id').orderBy('time').rangeBetween(-200, 0)
 
-@pandas_udf(Scalar, DoubleType())
+@pandas_udf(DoubleType())
 def ema_udf(v1):
     return v1.ewm(alpha=0.5).mean().iloc[-1]
 
@@ -124,17 +204,17 @@ output
 | 100       | foo       | 1.0          | 1.0           |
 | 100       | bar       | 2.0          | 2.0           |
 | 200       | foo       | 3.0          | 2.33          |
-| 300       | foo       | 4.0          | 3.28          |
+| 200       | foo       | 4.0          | 3.28          |
 | 200       | bar       | 5.0          | 4.0           |
-| 400       | foo       | 6.0          | 4.73          |
+| 300       | foo       | 6.0          | 4.73          |
 
 ## aggregation
-#### group aggregation (Scalar)
-In this example, the udf takes one or more pd.Series of the same size as input, and returns a scalar value. The return value is added to each group.
+#### group aggregation
+In this example, the udf takes one or more `pandas.Series` of the same size, and returns a scalar value. The result is the aggregation for each group.
 
 ```
 import numpy as np
-@pandas_udf(Scalar, DoubleType())
+@pandas_udf(DoubleType())
 def weighted_mean_udf(v1, w):
     return np.average(v1, weights=w)
 
@@ -159,35 +239,43 @@ output
 | foo       | 3.67         |
 | bar       | 3.5          |
 
+
 ## apply
-
-#### partition apply
-```
-# This must match the returned pandas DataFrame of the udf
-schema = StructType([StructField('id', IntegerType()), StructField("v1", DoubleType())])
-
-from scipy.stats import mstats
-@pandas_udf(DataFrame, schema)
-def winsorize_udf(df):
-    df.v = mstats.winsorize(df.v)
-    return df
-
-df.papply(winsorize_udf(df.columns))
-```
-This will apply `winsorize` on each partition and combine results together in the order of partitions.
-
 #### group apply
+In this example, the udf takes a `pandas.DataFrame` and returns a `pandas.DataFrame`. Here the input and output dataframe has the same schema and size, but they don't have too. (Input and output can be different in both schema and size)
 ```
 from scipy.stats import mstats
 
 # This must match the returned pandas DataFrame of the udf
-schema = StructType([StructField('id', IntegerType()), StructField("v1", DoubleType())])
+schema = DataFrameType([StructField('id', IntegerType()), StructField("v1", DoubleType())])
 
-@pandas_udf(DataFrame, schema)
-def winsorize_udf(df):
-    df.v1 = mstats.winsorize(df.v1, [0.05, 0.05])
+@pandas_udf(schema)
+def normalize(df):
+    df.v1 = (df.v1 - df.v1.mean()) / df.v1.std()
     return df
 
-df.groupBy('id').apply(winsorize_udf(df.columns))
+df.groupBy('id').apply(normalize(df))
 ```
 This will apply `winsorize` on each group and combine the results together into a pyspark DataFrame.
+
+input
+
+| time      | id        | v1           |
+| --------- | --------- | ------------ |
+| 100       | foo       | 1.0          |
+| 100       | bar       | 2.0          |
+| 200       | foo       | 3.0          |
+| 200       | foo       | 4.0          |
+| 200       | bar       | 5.0          |
+| 300       | foo       | 6.0          |
+
+output
+
+| time      | id        | v1           |
+| --------- | --------- | ------------ |
+| 100       | foo       | -1.2         |
+| 100       | bar       | -0.7         |
+| 200       | foo       | -0.24        |
+| 200       | foo       | 0.24         |
+| 200       | bar       | 0.7          |
+| 300       | foo       | 1.2          |
