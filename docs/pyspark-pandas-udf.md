@@ -65,8 +65,7 @@ def foo(v, w):
 ```
 
 # Use of pandas udf
-## withColumn (add a column to each row of the table)
-### Vectorized row operations
+## Vectorized row operations
 In this example the udf takes one or more `pandas.Series` of the same size, returns a `pandas.Series` of the same size. The returned `pandas.Series` it appeded to each row. How data in spark is grouped into pandas.Series is implementation detail and the user should not reply on it.
 ```
 @pandas_udf(SeriesType(DoubleType()))
@@ -97,8 +96,9 @@ output
 | bar       | 5.0          | 2            | 7.0         |
 | foo       | 6.0          | 1            | 7.0         |
 
+## Window Operations
 ### Non overlapping windows
-Non overlapping window is sematically same as `groupBy`. So alternatively we can also use a `groupBy` operator.
+Non overlapping window is conceptually same as `groupBy`. So alternatively we can also use a `groupBy` operator.
 
 #### Non overlapping windows (Series)
 In this example, the udf takes one or more `pandas.Series` of the same size, and returns a `pandas.Series` of the same size. The returned Series is joined with rows of the window.
@@ -171,7 +171,7 @@ output
 | bar       | 5.0          | 2            | 3.5              |
 | foo       | 6.0          | 1            | 3.67             |
 
-### Overlapping windows
+### Overlapping windows (Rolling windows)
 Overlapping windows is defined by using `rangeBetween` or `rowsBetween`. With overlapping windows, each row in the original table has a different window.
 
 #### Overlapping windows (Scalar)
@@ -208,8 +208,8 @@ output
 | 200       | bar       | 5.0          | 4.0           |
 | 300       | foo       | 6.0          | 4.73          |
 
-## aggregation
-#### group aggregation
+## Group Operations
+#### aggregation
 In this example, the udf takes one or more `pandas.Series` of the same size, and returns a scalar value. The result is the aggregation for each group.
 
 ```
@@ -239,24 +239,21 @@ output
 | foo       | 3.67         |
 | bar       | 3.5          |
 
-
-## apply
-#### group apply
-In this example, the udf takes a `pandas.DataFrame` and returns a `pandas.DataFrame`. Here the input and output dataframe has the same schema and size, but they don't have too. (Input and output can be different in both schema and size)
+#### transform
 ```
-from scipy.stats import mstats
+@pandas_udf(SeriesType(DoubleType()))
+def normalize(v):
+    v = (v - v.mean()) / v.std()
+    return v
 
-# This must match the returned pandas DataFrame of the udf
-schema = DataFrameType([StructField('id', IntegerType()), StructField("v1", DoubleType())])
-
-@pandas_udf(schema)
-def normalize(df):
-    df.v1 = (df.v1 - df.v1.mean()) / df.v1.std()
-    return df
-
-df.groupBy('id').apply(normalize(df))
+df.groupBy('id').transform(normalize(df.v1))
 ```
-This will apply `winsorize` on each group and combine the results together into a pyspark DataFrame.
+
+Note: This is equivalent to the following example using window:
+```
+w = Window.partitionBy('id')
+df.withColumn('v1', normalize(df.v1).over(w))
+```
 
 input
 
@@ -279,3 +276,41 @@ output
 | 200       | foo       | 0.24         |
 | 200       | bar       | 0.7          |
 | 300       | foo       | 1.2          |
+
+#### apply
+In this example, the udf takes a `pandas.DataFrame` and returns a `pandas.DataFrame`. Here the input and output dataframe has the same schema and size, but they don't have too. (Input and output can be different in both schema and size)
+```
+schema = df.schema
+
+@pandas_udf(schema)
+def normalize(df):
+    df.v1 = (df.v1 - df.v1.mean()) / df.v1.std()
+    return df
+
+df.groupBy('id').apply(normalize(df))
+```
+This will apply `normalize` on each group and combine the results together into a pyspark DataFrame.
+
+input
+
+| time      | id        | v1           |
+| --------- | --------- | ------------ |
+| 100       | foo       | 1.0          |
+| 100       | bar       | 2.0          |
+| 200       | foo       | 3.0          |
+| 200       | foo       | 4.0          |
+| 200       | bar       | 5.0          |
+| 300       | foo       | 6.0          |
+
+output
+
+| time      | id        | v1           |
+| --------- | --------- | ------------ |
+| 100       | foo       | -1.2         |
+| 100       | bar       | -0.7         |
+| 200       | foo       | -0.24        |
+| 200       | foo       | 0.24         |
+| 200       | bar       | 0.7          |
+| 300       | foo       | 1.2          |
+
+Note: This example shows a transformation on a column, which can be done using `transform`, but `apply` is more flexiable in general.
