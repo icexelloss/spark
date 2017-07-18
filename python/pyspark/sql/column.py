@@ -123,7 +123,6 @@ def _reverse_op(name, doc="binary operator"):
     _.__doc__ = doc
     return _
 
-
 class Column(object):
 
     """

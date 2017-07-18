@@ -18,31 +18,18 @@
 package org.apache.spark.sql.execution.python
 
 import org.apache.spark.api.python.PythonFunction
-import org.apache.spark.sql.catalyst.expressions.Expression
-import org.apache.spark.sql.Column
+import org.apache.spark.sql.catalyst.expressions.{Expression, NonSQLExpression, Unevaluable}
 import org.apache.spark.sql.types.DataType
 
-/**
- * A user-defined Python function. This is used by the Python API.
- */
-case class UserDefinedPythonFunction(
+case class PandasUDF(
     name: String,
     func: PythonFunction,
     dataType: DataType,
-    isPandasUDF: Boolean
-) {
+    children: Seq[Expression])
+    extends Expression with Unevaluable with NonSQLExpression {
 
-  def builder(e: Seq[Expression]): Expression = {
-    if (isPandasUDF) {
-      PandasUDF(name, func, dataType, e)
-    } else {
-      PythonUDF(name, func, dataType, e)
-    }
-  }
+  override def toString: String = s"$name(${children.mkString(", ")})"
 
-  /** Returns a [[Column]] that will evaluate to calling this UDF with the given input. */
-  def apply(exprs: Column*): Column = {
-    val udf = builder(exprs.map(_.expr))
-    Column(udf)
-  }
+  override def nullable: Boolean = true
 }
+

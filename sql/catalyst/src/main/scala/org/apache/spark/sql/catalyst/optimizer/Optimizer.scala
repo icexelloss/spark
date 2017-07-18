@@ -429,6 +429,7 @@ object ColumnPruning extends Rule[LogicalPlan] {
       output1.zip(output2).forall(pair => pair._1.semanticEquals(pair._2))
 
   def apply(plan: LogicalPlan): LogicalPlan = removeProjectBeforeFilter(plan transform {
+
     // Prunes the unused columns from project list of Project/Aggregate/Expand
     case p @ Project(_, p2: Project) if (p2.outputSet -- p.references).nonEmpty =>
       p.copy(child = p2.copy(projectList = p2.projectList.filter(p.references.contains)))
@@ -450,7 +451,13 @@ object ColumnPruning extends Rule[LogicalPlan] {
 
     // Prunes the unused columns from child of Aggregate/Expand/Generate
     case a @ Aggregate(_, _, child) if (child.outputSet -- a.references).nonEmpty =>
+      println("Aggregate.referrences: ", a.references)
       a.copy(child = prunedChild(child, a.references))
+
+    case f @ FlatMapGroupsInPandas(_, _, child)
+      if (child.outputSet -- f.references).nonEmpty =>
+      f.copy(child = prunedChild(child, f.references))
+
     case e @ Expand(_, _, child) if (child.outputSet -- e.references).nonEmpty =>
       e.copy(child = prunedChild(child, e.references))
     case g: Generate if !g.join && (g.child.outputSet -- g.references).nonEmpty =>

@@ -23,16 +23,17 @@ import scala.collection.JavaConverters._
 import scala.language.implicitConversions
 
 import org.apache.spark.annotation.InterfaceStability
+import org.apache.spark.api.python.PythonFunction
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.catalyst.analysis.{Star, UnresolvedAlias, UnresolvedAttribute, UnresolvedFunction}
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate._
-import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, FlatMapGroupsInR, Pivot}
+import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.util.usePrettyExpression
 import org.apache.spark.sql.execution.aggregate.TypedAggregateExpression
+import org.apache.spark.sql.execution.python.{PandasUDF, PythonUDF}
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.NumericType
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{NumericType, StructField, StructType}
 
 /**
  * A set of methods for aggregations on a `DataFrame`, created by [[Dataset#groupBy groupBy]],
@@ -434,6 +435,24 @@ class RelationalGroupedDataset protected[sql](
           groupingAttributes,
           df.logicalPlan.output,
           df.logicalPlan))
+  }
+
+  private[sql] def flatMapGroupsInPandas(
+      expr: PandasUDF
+  ): DataFrame = {
+    // val groupingNamedExpressions = groupingExprs.map(alias)
+    // val groupingAttributes = groupingNamedExpressions.map(_.toAttribute)
+    // val input: Seq[Attribute] = expr.references.toSeq
+
+
+    Dataset.ofRows(
+      df.sparkSession,
+      FlatMapGroupsInPandas(
+        groupingExprs,
+        expr,
+        df.logicalPlan
+      )
+    )
   }
 }
 

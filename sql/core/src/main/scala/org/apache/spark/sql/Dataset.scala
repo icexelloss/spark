@@ -30,7 +30,7 @@ import org.apache.commons.lang3.StringUtils
 import org.apache.spark.annotation.{DeveloperApi, Experimental, InterfaceStability}
 import org.apache.spark.api.java.JavaRDD
 import org.apache.spark.api.java.function._
-import org.apache.spark.api.python.{PythonRDD, SerDeUtil}
+import org.apache.spark.api.python.{PythonFunction, PythonRDD, SerDeUtil}
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst._
@@ -2455,6 +2455,16 @@ class Dataset[T] private[sql](
     val func: (Iterator[T]) => Iterator[U] = x => f.call(x.asJava).asScala
     mapPartitions(func)(encoder)
   }
+
+  def mapPartitionsInPandas(
+      func: PythonFunction,
+      schema: StructType): DataFrame = {
+    Dataset.ofRows(
+      sparkSession,
+      MapPartitionsInPandas(func, schema, logicalPlan)
+    )
+  }
+
 
   /**
    * Returns a new `DataFrame` that contains the result of applying a serialized R function

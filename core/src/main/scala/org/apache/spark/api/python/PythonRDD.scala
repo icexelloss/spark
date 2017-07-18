@@ -86,9 +86,18 @@ private[spark] case class ChainedPythonFunctions(funcs: Seq[PythonFunction])
 private[spark] object PythonRunner {
   def apply(func: PythonFunction, bufferSize: Int, reuse_worker: Boolean): PythonRunner = {
     new PythonRunner(
-      Seq(ChainedPythonFunctions(Seq(func))), bufferSize, reuse_worker, false, Array(Array(0)))
+      Seq(ChainedPythonFunctions(Seq(func))),
+      bufferSize,
+      reuse_worker,
+      CommandPythonFunctionType,
+      Array(Array(0)))
   }
 }
+
+sealed trait PythonFunctionType{ val value: Int }
+object CommandPythonFunctionType extends PythonFunctionType{ override val value = 0 }
+object SqlUdfPythonFunctionType extends PythonFunctionType{ override val value = 1 }
+object PandasUdfPythonFunctionType extends PythonFunctionType{ override val value = 2 }
 
 /**
  * A helper class to run Python mapPartition/UDFs in Spark.
@@ -100,7 +109,7 @@ private[spark] class PythonRunner(
     funcs: Seq[ChainedPythonFunctions],
     bufferSize: Int,
     reuse_worker: Boolean,
-    isUDF: Boolean,
+    functionType: PythonFunctionType,
     argOffsets: Array[Array[Int]])
   extends Logging {
 
@@ -309,26 +318,27 @@ private[spark] class PythonRunner(
         }
         dataOut.flush()
         // Serialized command:
-        if (isUDF) {
-          dataOut.writeInt(1)
-          dataOut.writeInt(funcs.length)
-          funcs.zip(argOffsets).foreach { case (chained, offsets) =>
-            dataOut.writeInt(offsets.length)
-            offsets.foreach { offset =>
-              dataOut.writeInt(offset)
+        dataOut.writeInt(functionType.value)
+        functionType match {
+          case CommandPythonFunctionType =>
+            val command = funcs.head.funcs.head.command
+            dataOut.writeInt(command.length)
+            dataOut.write(command)
+          case SqlUdfPythonFunctionType | PandasUdfPythonFunctionType =>
+            dataOut.writeInt(funcs.length)
+            funcs.zip(argOffsets).foreach { case (chained, offsets) =>
+              dataOut.writeInt(offsets.length)
+              offsets.foreach { offset =>
+                dataOut.writeInt(offset)
+              }
+              dataOut.writeInt(chained.funcs.length)
+              chained.funcs.foreach { f =>
+                dataOut.writeInt(f.command.length)
+                dataOut.write(f.command)
+              }
             }
-            dataOut.writeInt(chained.funcs.length)
-            chained.funcs.foreach { f =>
-              dataOut.writeInt(f.command.length)
-              dataOut.write(f.command)
-            }
-          }
-        } else {
-          dataOut.writeInt(0)
-          val command = funcs.head.funcs.head.command
-          dataOut.writeInt(command.length)
-          dataOut.write(command)
         }
+
         // Data values
         PythonRDD.writeIteratorToStream(inputIterator, dataOut)
         dataOut.writeInt(SpecialLengths.END_OF_DATA_SECTION)

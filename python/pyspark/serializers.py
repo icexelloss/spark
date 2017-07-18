@@ -151,6 +151,7 @@ class FramedSerializer(Serializer):
             raise ValueError("serialized value should not be None")
         if len(serialized) > (1 << 31):
             raise ValueError("can not serialize object larger than 2G")
+
         write_int(len(serialized), stream)
         if self._only_write_strings:
             stream.write(str(serialized))
@@ -184,11 +185,16 @@ class FramedSerializer(Serializer):
 
 class ArrowSerializer(FramedSerializer):
     """
-    Serializes an Arrow stream.
+    Serializes an pyarrow.RecordBatch to/from Arrow File Format
     """
-
-    def dumps(self, obj):
-        raise NotImplementedError
+    # There is double copying here, once to the in memory output stream and once to the socket output stream
+    def dumps(self, record_batch):
+        import pyarrow as pa
+        output = pa.InMemoryOutputStream()
+        writer = pa.FileWriter(output, record_batch.schema)
+        writer.write_batch(record_batch)
+        writer.close()
+        return output.get_result().to_pybytes()
 
     def loads(self, obj):
         import pyarrow as pa

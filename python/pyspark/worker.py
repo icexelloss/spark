@@ -30,7 +30,8 @@ from pyspark.broadcast import Broadcast, _broadcastRegistry
 from pyspark.taskcontext import TaskContext
 from pyspark.files import SparkFiles
 from pyspark.serializers import write_with_length, write_int, read_long, \
-    write_long, read_int, SpecialLengths, UTF8Deserializer, PickleSerializer, BatchedSerializer
+    write_long, read_int, SpecialLengths, UTF8Deserializer, PickleSerializer, BatchedSerializer, \
+    ArrowSerializer
 from pyspark import shuffle
 
 pickleSer = PickleSerializer()
@@ -84,6 +85,19 @@ def read_single_udf(pickleSer, infile):
     # the last returnType will be the return type of UDF
     return arg_offsets, wrap_udf(row_func, return_type)
 
+def read_single_pandas_udf(pickleSer, infile):
+    num_arg = read_int(infile)
+    arg_offsets = [read_int(infile) for i in range(num_arg)]
+    row_func = None
+    for i in range(read_int(infile)):
+        f, return_type = read_command(pickleSer, infile)
+        if row_func is None:
+            row_func = f
+        else:
+            row_func = chain(row_func, f)
+    # the last returnType will be the return type of UDF
+    return arg_offsets, row_func
+
 
 def read_udfs(pickleSer, infile):
     num_udfs = read_int(infile)
@@ -106,6 +120,30 @@ def read_udfs(pickleSer, infile):
     # profiling is not supported for UDF
     return func, None, ser, ser
 
+def read_pandas_udfs(pickleSer, infile):
+    import pyarrow as pa
+    num_udfs = read_int(infile)
+    assert num_udfs == 1, 'Pandas udf only supports one udf'
+    _, udf = read_single_pandas_udf(pickleSer, infile)
+
+    def mapper(record_batch):
+        # print("mapper")
+        df = record_batch.to_pandas()
+        # print("df")
+        # print(df)
+        # print(type(df))
+        # import dis
+        # dis.disassemble(udf.__code__)
+        df2 = udf(df)
+        # print("df2")
+        # print(type(df2))
+        # print(df2)
+        return pa.RecordBatch.from_pandas(df2)
+
+    func = lambda _, it: map(mapper, it)
+    ser = ArrowSerializer()
+
+    return func, None, ser, ser
 
 def main(infile, outfile):
     try:
@@ -159,21 +197,36 @@ def main(infile, outfile):
                 _broadcastRegistry.pop(bid)
 
         _accumulatorRegistry.clear()
-        is_sql_udf = read_int(infile)
-        if is_sql_udf:
-            func, profiler, deserializer, serializer = read_udfs(pickleSer, infile)
-        else:
+        python_function_type = read_int(infile)
+        # print("python_function_type")
+        # print(python_function_type)
+        if python_function_type == 0:
             func, profiler, deserializer, serializer = read_command(pickleSer, infile)
+        elif python_function_type == 1:
+            func, profiler, deserializer, serializer = read_udfs(pickleSer, infile)
+        elif python_function_type == 2:
+            func, profiler, deserializer, serializer = read_pandas_udfs(pickleSer, infile)
+        else:
+            assert False, "Unrecognized function type: %d" % python_function_type
 
         init_time = time.time()
 
         def process():
+            # print("in process")
+            # print(deserializer)
+            # print(serializer)
+            # print("calling load_stream")
             iterator = deserializer.load_stream(infile)
+            # print("calling dump_stream")
             serializer.dump_stream(func(split_index, iterator), outfile)
 
         if profiler:
             profiler.profile(process)
         else:
+            #import cProfile
+            #pr = cProfile.Profile()
+            #pr.runcall(process)
+            #pr.print_stats(sort='time')
             process()
     except Exception:
         try:

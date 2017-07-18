@@ -370,9 +370,13 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
       case logical.MapPartitionsInR(f, p, b, is, os, objAttr, child) =>
         execution.MapPartitionsExec(
           execution.r.MapPartitionsRWrapper(f, p, b, is, os), objAttr, planLater(child)) :: Nil
+      case logical.MapPartitionsInPandas(f, os, child) =>
+        execution.python.MapPartitionsInPandasExec(f, os, planLater(child)) :: Nil
       case logical.FlatMapGroupsInR(f, p, b, is, os, key, value, grouping, data, objAttr, child) =>
         execution.FlatMapGroupsInRExec(f, p, b, is, os, key, value, grouping,
           data, objAttr, planLater(child)) :: Nil
+      case logical.FlatMapGroupsInPandas(grouping, func, child) =>
+        execution.python.FlatMapGroupsInPandasExec(grouping, func, planLater(child)) :: Nil
       case logical.MapElements(f, _, _, objAttr, child) =>
         execution.MapElementsExec(f, objAttr, planLater(child)) :: Nil
       case logical.AppendColumns(f, _, _, in, out, child) =>

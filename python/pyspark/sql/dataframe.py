@@ -1697,6 +1697,8 @@ class DataFrame(object):
 
         return DataFrame(jdf, self.sql_ctx)
 
+
+
     @ignore_unicode_prefix
     def toDF(self, *cols):
         """Returns a new class:`DataFrame` that with new specified column names
@@ -1781,6 +1783,9 @@ class DataFrame(object):
         sinceversion=1.3,
         doc=":func:`where` is an alias for :func:`filter`.")
 
+    def papply(self, udf):
+        judf = udf._judf
+        return DataFrame(self._jdf.mapPartitionsInPandas(judf.func(), judf.dataType()), self.sql_ctx)
 
 def _to_scala_map(sc, jm):
     """

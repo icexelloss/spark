@@ -605,6 +605,8 @@ class StructType(DataType):
             values = obj
         return _create_row(self.names, values)
 
+class DataFrameType(StructType):
+    pass
 
 class UserDefinedType(DataType):
     """User-defined type (UDT).

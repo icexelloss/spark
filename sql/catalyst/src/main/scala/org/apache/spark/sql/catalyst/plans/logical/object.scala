@@ -20,13 +20,14 @@ package org.apache.spark.sql.catalyst.plans.logical
 import scala.language.existentials
 
 import org.apache.spark.api.java.function.FilterFunction
+import org.apache.spark.api.python.PythonFunction
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.sql.{Encoder, Row}
 import org.apache.spark.sql.catalyst.analysis.UnresolvedDeserializer
 import org.apache.spark.sql.catalyst.encoders._
-import org.apache.spark.sql.catalyst.expressions._
+import org.apache.spark.sql.catalyst.expressions.{AttributeSet, _}
 import org.apache.spark.sql.catalyst.expressions.objects.Invoke
-import org.apache.spark.sql.streaming.{GroupStateTimeout, OutputMode }
+import org.apache.spark.sql.streaming.{GroupStateTimeout, OutputMode}
 import org.apache.spark.sql.types._
 import org.apache.spark.util.Utils
 
@@ -113,6 +114,21 @@ case class MapPartitions(
     func: Iterator[Any] => Iterator[Any],
     outputObjAttr: Attribute,
     child: LogicalPlan) extends ObjectConsumer with ObjectProducer
+
+case class MapPartitionsInPandas(
+    func: PythonFunction,
+    outputSchema: StructType,
+    child: LogicalPlan) extends UnaryNode {
+
+  override lazy val schema = outputSchema
+
+  override def output: Seq[Attribute] = schema.map {
+    case StructField(name, dataType, nullable, metadata)
+    => AttributeReference(name, dataType, nullable, metadata)()
+  }
+  override def references: AttributeSet = child.outputSet
+  override val producedAttributes: AttributeSet = AttributeSet(output)
+}
 
 object MapPartitionsInR {
   def apply(
@@ -519,3 +535,18 @@ case class CoGroup(
     outputObjAttr: Attribute,
     left: LogicalPlan,
     right: LogicalPlan) extends BinaryNode with ObjectProducer
+
+case class FlatMapGroupsInPandas(
+    groupingExprs: Seq[Expression],
+    functionExpr: Expression,
+    child: LogicalPlan) extends UnaryNode {
+
+  override val output: Seq[Attribute] = functionExpr.dataType match {
+    case s: StructType => s.map {
+      case StructField(name, dataType, nullable, metadata) =>
+        AttributeReference(name, dataType, nullable, metadata)()
+    }
+  }
+
+  override val producedAttributes: AttributeSet = AttributeSet(output)
+}

@@ -1,4 +1,3 @@
-# -*- encoding: utf-8 -*-
 #
 # Licensed to the Apache Software Foundation (ASF) under one or more
 # contributor license agreements.  See the NOTICE file distributed with
@@ -2885,6 +2884,7 @@ class ArrowTests(ReusedPySparkTestCase):
         ReusedPySparkTestCase.setUpClass()
         cls.spark = SparkSession(cls.sc)
         cls.spark.conf.set("spark.sql.execution.arrow.enable", "true")
+        cls.spark.conf.set('spark.default.parallelism', 1)
         cls.schema = StructType([
             StructField("1_str_t", StringType(), True),
             StructField("2_int_t", IntegerType(), True),
@@ -2901,47 +2901,105 @@ class ArrowTests(ReusedPySparkTestCase):
                ("\n\nWithout:\n%s\n%s" % (df_without, df_without.dtypes)))
         self.assertTrue(df_without.equals(df_with_arrow), msg=msg)
 
-    def test_unsupported_datatype(self):
-        schema = StructType([StructField("array", ArrayType(IntegerType(), False), True)])
-        df = self.spark.createDataFrame([([1, 2, 3],)], schema=schema)
-        with QuietTest(self.sc):
-            self.assertRaises(Exception, lambda: df.toPandas())
+    # def test_unsupported_datatype(self):
+    #     schema = StructType([StructField("array", ArrayType(IntegerType(), False), True)])
+    #     df = self.spark.createDataFrame([([1, 2, 3],)], schema=schema)
+    #     with QuietTest(self.sc):
+    #         self.assertRaises(Exception, lambda: df.toPandas())
 
-    def test_null_conversion(self):
-        df_null = self.spark.createDataFrame([tuple([None for _ in range(len(self.data[0]))])] +
-                                             self.data)
-        pdf = df_null.toPandas()
-        null_counts = pdf.isnull().sum().tolist()
-        self.assertTrue(all([c == 1 for c in null_counts]))
+    # def test_null_conversion(self):
+    #     df_null = self.spark.createDataFrame([tuple([None for _ in range(len(self.data[0]))])] +
+    #                                          self.data)
+    #     pdf = df_null.toPandas()
+    #     null_counts = pdf.isnull().sum().tolist()
+    #     self.assertTrue(all([c == 1 for c in null_counts]))
 
-    def test_toPandas_arrow_toggle(self):
-        df = self.spark.createDataFrame(self.data, schema=self.schema)
-        self.spark.conf.set("spark.sql.execution.arrow.enable", "false")
-        pdf = df.toPandas()
-        self.spark.conf.set("spark.sql.execution.arrow.enable", "true")
-        pdf_arrow = df.toPandas()
-        self.assertFramesEqual(pdf_arrow, pdf)
+    # def test_toPandas_arrow_toggle(self):
+    #     df = self.spark.createDataFrame(self.data, schema=self.schema)
+    #     self.spark.conf.set("spark.sql.execution.arrow.enable", "false")
+    #     pdf = df.toPandas()
+    #     self.spark.conf.set("spark.sql.execution.arrow.enable", "true")
+    #     pdf_arrow = df.toPandas()
+    #     self.assertFramesEqual(pdf_arrow, pdf)
 
-    def test_pandas_round_trip(self):
+    # def test_pandas_round_trip(self):
+    #     import pandas as pd
+    #     import numpy as np
+    #     data_dict = {}
+    #     for j, name in enumerate(self.schema.names):
+    #         data_dict[name] = [self.data[i][j] for i in range(len(self.data))]
+    #     # need to convert these to numpy types first
+    #     data_dict["2_int_t"] = np.int32(data_dict["2_int_t"])
+    #     data_dict["4_float_t"] = np.float32(data_dict["4_float_t"])
+    #     pdf = pd.DataFrame(data=data_dict)
+    #     df = self.spark.createDataFrame(self.data, schema=self.schema)
+    #     pdf_arrow = df.toPandas()
+    #     self.assertFramesEqual(pdf_arrow, pdf)
+
+    # def test_filtered_frame(self):
+    #     df = self.spark.range(3).toDF("i")
+    #     pdf = df.filter("i < 0").toPandas()
+    #     self.assertEqual(len(pdf.columns), 1)
+    #     self.assertEqual(pdf.columns[0], "i")
+    #     self.assertTrue(pdf.empty)
+
+    # def test_papply(self):
+    #     from pyspark.sql.functions import udf, UserDefinedFunction
+    #     from pyspark.sql.types import IntegerType, StructType, StructField, LongType
+    #     # TODO: Fix string type
+    #     df1 = self.spark.createDataFrame(self.data, schema=self.schema)
+    #     print("------------------------------------------------------")
+    #     func = UserDefinedFunction(
+    #         lambda df: df[['2_int_t', '5_double_t']],
+    #         StructType([StructField('2_int_t', IntegerType()), StructField('5_double_t', DoubleType())]))
+    #     df2 = df1.papply(func)
+    #     self.assertEqual(df1.select('2_int_t', '5_double_t').collect(), df2.collect())
+
+    # def test_groupby_apply(self):
+    #     from pyspark.sql.functions import udf, col
+    #     df1 = self.spark.createDataFrame(self.data, schema=self.schema)
+    #     schema = StructType([
+    #         StructField("2_int_t", IntegerType(), True),
+    #         StructField("3_long_t", LongType(), True)])
+    #     func = UserDefinedFunction(
+    #         lambda df: df[['2_int_t', '3_long_t']],
+    #         schema)
+    #     df2 = df1.groupby('2_int_t').apply(func).orderBy('2_int_t')
+
+    #     df1.show()
+    #     df2.show()
+
+    #     df1.withColumn("v1", udf(lambda v: v + 1, LongType())(col('3_long_t'))).count()
+    #     df2.count()
+
+    #     self.assertEqual(df1.select('2_int_t', '3_long_t').collect(), df2.collect())
+
+    def test_groupby_apply2(self):
+
+        from pyspark.sql.functions import col, udf, sum
+        from pyspark.sql.types import StructType, StructField, StringType, IntegerType, LongType
         import pandas as pd
-        import numpy as np
-        data_dict = {}
-        for j, name in enumerate(self.schema.names):
-            data_dict[name] = [self.data[i][j] for i in range(len(self.data))]
-        # need to convert these to numpy types first
-        data_dict["2_int_t"] = np.int32(data_dict["2_int_t"])
-        data_dict["4_float_t"] = np.float32(data_dict["4_float_t"])
-        pdf = pd.DataFrame(data=data_dict)
-        df = self.spark.createDataFrame(self.data, schema=self.schema)
-        pdf_arrow = df.toPandas()
-        self.assertFramesEqual(pdf_arrow, pdf)
+        df1 = self.spark.createDataFrame(self.data, schema=self.schema)
 
-    def test_filtered_frame(self):
-        df = self.spark.range(3).toDF("i")
-        pdf = df.filter("i < 0").toPandas()
-        self.assertEqual(len(pdf.columns), 1)
-        self.assertEqual(pdf.columns[0], "i")
-        self.assertTrue(pdf.empty)
+        #expected_schema = StructType([
+        #    StructField("v1", DoubleType(), True),
+        #    StructField("v2", DoubleType(), True)
+        #])
+
+        expected_schema = StructType([
+            StructField("2_int_t", IntegerType(), True),
+            StructField("3_long_t", LongType(), True),
+            StructField("4_long_t", LongType(), True)
+        ])
+
+        @udf(expected_schema, pandas=True)
+        def foo(pdf):
+            pdf['4_long_t'] = pdf['2_int_t'] * pdf['3_long_t']
+            return pdf
+
+        df2 = df1.groupby('1_str_t').apply(foo(df1[['2_int_t', '3_long_t']]))
+
+        df2.show()
 
 
 if __name__ == "__main__":

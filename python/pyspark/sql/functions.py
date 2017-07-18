@@ -2030,7 +2030,7 @@ class UserDefinedFunction(object):
 
     .. versionadded:: 1.3
     """
-    def __init__(self, func, returnType, name=None):
+    def __init__(self, func, returnType, name=None, pandas=False):
         if not callable(func):
             raise TypeError(
                 "Not a function or callable (__call__ is not defined): "
@@ -2044,6 +2044,7 @@ class UserDefinedFunction(object):
         self._name = name or (
             func.__name__ if hasattr(func, '__name__')
             else func.__class__.__name__)
+        self._pandas = pandas
 
     @property
     def returnType(self):
@@ -2075,7 +2076,7 @@ class UserDefinedFunction(object):
         wrapped_func = _wrap_function(sc, self.func, self.returnType)
         jdt = spark._jsparkSession.parseDataType(self.returnType.json())
         judf = sc._jvm.org.apache.spark.sql.execution.python.UserDefinedPythonFunction(
-            self._name, wrapped_func, jdt)
+            self._name, wrapped_func, jdt, self._pandas)
         return judf
 
     def __call__(self, *cols):
@@ -2087,18 +2088,39 @@ class UserDefinedFunction(object):
         """
         Wrap this udf with a function and attach docstring from func
         """
-        @functools.wraps(self.func)
-        def wrapper(*args):
-            return self(*args)
+
+        if self._pandas:
+            @functools.wraps(self.func)
+            def wrapper(*args):
+                column_indices = []
+                cols = []
+                print(args)
+                for arg in args:
+                    if isinstance(arg, DataFrame):
+                        df = arg
+                        column_indices.append(df.columns)
+                        cols += [df[c] for c in df.columns]
+                    elif isinstance(arg, Column):
+                        col = arg
+                        column_indices.append(col._jc.expr().name())
+                        cols.append(col)
+
+                user_func = self.func
+                self.func = lambda pdf: user_func(*[pdf[i] for i in column_indices])
+
+                return self(*cols)
+        else:
+            @functools.wraps(self.func)
+            def wrapper(*args):
+                return self(*args)
 
         wrapper.func = self.func
         wrapper.returnType = self.returnType
 
         return wrapper
 
-
 @since(1.3)
-def udf(f=None, returnType=StringType()):
+def udf(f=None, returnType=StringType(), pandas=False):
     """Creates a :class:`Column` expression representing a user defined function (UDF).
 
     .. note:: The user-defined functions must be deterministic. Due to optimization,
@@ -2128,8 +2150,8 @@ def udf(f=None, returnType=StringType()):
     |         8|      JOHN DOE|          22|
     +----------+--------------+------------+
     """
-    def _udf(f, returnType=StringType()):
-        udf_obj = UserDefinedFunction(f, returnType)
+    def _udf(f, returnType=StringType(), pandas=False):
+        udf_obj = UserDefinedFunction(f, returnType, None, pandas)
         return udf_obj._wrapped()
 
     # decorator @udf, @udf() or @udf(dataType())
@@ -2137,7 +2159,7 @@ def udf(f=None, returnType=StringType()):
         # If DataType has been passed as a positional argument
         # for decorator use it as a returnType
         return_type = f or returnType
-        return functools.partial(_udf, returnType=return_type)
+        return functools.partial(_udf, returnType=return_type, pandas=pandas)
     else:
         return _udf(f=f, returnType=returnType)
 

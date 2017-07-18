@@ -22,7 +22,10 @@ import java.sql.{Date, Timestamp}
 import java.text.SimpleDateFormat
 import java.util.Locale
 
+import scala.collection.mutable.ArrayBuffer
+
 import com.google.common.io.Files
+import net.razorvine.pickle.Pickler
 import org.apache.arrow.memory.RootAllocator
 import org.apache.arrow.vector.{VectorLoader, VectorSchemaRoot}
 import org.apache.arrow.vector.file.json.JsonFileReader
@@ -31,10 +34,12 @@ import org.scalatest.BeforeAndAfterAll
 
 import org.apache.spark.SparkException
 import org.apache.spark.sql.{DataFrame, Row}
+import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.util.DateTimeUtils
+import org.apache.spark.sql.execution.python.EvaluatePython
 import org.apache.spark.sql.test.SharedSQLContext
-import org.apache.spark.sql.types.{BinaryType, StructField, StructType}
+import org.apache.spark.sql.types._
 import org.apache.spark.util.Utils
-
 
 class ArrowConvertersSuite extends SharedSQLContext with BeforeAndAfterAll {
   import testImplicits._
@@ -1191,7 +1196,20 @@ class ArrowConvertersSuite extends SharedSQLContext with BeforeAndAfterAll {
     // NOTE: coalesce to single partition because can only load 1 batch in validator
     val arrowPayload = df.coalesce(1).toArrowPayload.collect().head
     val tempFile = new File(tempDataPath, file)
+    val rootAllocator = new RootAllocator(Long.MaxValue)
+
+    val rows: Seq[InternalRow] = ArrowConverters.toUnsafeRowsIter(
+      arrowPayload,
+      df.schema,
+      rootAllocator
+    ).map(_.copy()).toList
+    val rdd = spark.sparkContext.parallelize(rows)
+    val df2 = spark.internalCreateDataFrame(rdd, df.schema)
+
+    assert(df2.collectAsList() == df.collectAsList())
+
     Files.write(json, tempFile, StandardCharsets.UTF_8)
+
     validateConversion(df.schema, arrowPayload, tempFile)
   }
 
@@ -1218,5 +1236,43 @@ class ArrowConvertersSuite extends SharedSQLContext with BeforeAndAfterAll {
     arrowRecordBatch.close()
     arrowRoot.close()
     allocator.close()
+  }
+
+  test("conversion performance") {
+    val df = spark.sparkContext.parallelize(0L until 1000000L).toDF("v")
+
+    val rows = df.queryExecution.executedPlan.executeCollect()
+
+    // Arrow conversion
+    for (trial <- (0 until 10)) {
+      var beginTime = System.currentTimeMillis()
+      val allocator = new RootAllocator(Int.MaxValue)
+      val recordBatch = ArrowConverters.internalRowIterToArrowBatch(
+        rows.toIterator,
+        df.schema,
+        allocator,
+        0)
+      println("Arrow conversion: " + (System.currentTimeMillis() - beginTime))
+    }
+
+    // Pickle conversion
+    beginTime = System.currentTimeMillis()
+    val pickler = new Pickler(false)
+    var i = 0
+    while(i < 1000000) {
+      val row = rows(i)
+      // fast path for these types that does not need conversion in Python
+      val fields = new Array[Any](row.numFields)
+      var j = 0
+      while (j < row.numFields) {
+        val dt = LongType
+        fields(j) = EvaluatePython.toJava(row.get(j, dt), dt)
+        j += 1
+      }
+      pickler.dumps(fields)
+      i += 1
+    }
+    println("Pickle conversion: " + (System.currentTimeMillis() - beginTime))
+
   }
 }

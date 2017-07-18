@@ -156,6 +156,11 @@ object DataType {
     ("type", JString("struct"))) =>
       StructType(fields.map(parseStructField))
 
+    case JSortedObject(
+    ("fields", JArray(fields)),
+    ("type", JString("dataframe"))) =>
+      DataFrameType(fields.map(parseStructField))
+
     // Scala/Java UDT
     case JSortedObject(
     ("class", JString(udtClass)),

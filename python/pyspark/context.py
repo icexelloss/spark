@@ -453,7 +453,7 @@ class SparkContext(object):
 
         return self.parallelize(xrange(start, end, step), numSlices)
 
-    def parallelize(self, c, numSlices=None):
+    def parallelize(self, c, numSlices=1):
         """
         Distribute a local Python collection to form an RDD. Using xrange
         is recommended if the input represents a range for performance.
