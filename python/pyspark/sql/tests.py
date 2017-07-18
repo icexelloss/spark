@@ -2998,6 +2998,7 @@ class ArrowTests(ReusedPySparkTestCase):
 
     @classmethod
     def setUpClass(cls):
+        import pandas as pd
         ReusedPySparkTestCase.setUpClass()
         cls.spark = SparkSession(cls.sc)
         cls.spark.conf.set("spark.sql.execution.arrow.enable", "true")
@@ -3006,7 +3007,8 @@ class ArrowTests(ReusedPySparkTestCase):
             StructField("2_int_t", IntegerType(), True),
             StructField("3_long_t", LongType(), True),
             StructField("4_float_t", FloatType(), True),
-            StructField("5_double_t", DoubleType(), True)])
+            StructField("5_double_t", DoubleType(), True)
+        ])
         cls.data = [("a", 1, 10, 0.2, 2.0),
                     ("b", 2, 20, 0.4, 4.0),
                     ("c", 3, 30, 0.8, 6.0)]
@@ -3051,6 +3053,19 @@ class ArrowTests(ReusedPySparkTestCase):
         df = self.spark.createDataFrame(self.data, schema=self.schema)
         pdf_arrow = df.toPandas()
         self.assertFramesEqual(pdf_arrow, pdf)
+
+    def test_timestamp(self):
+        from pyspark.sql.types import TimestampType
+        df = self.spark.range(0, 1).toDF("timestamp")
+        df = df.withColumn("timestamp", df['timestamp'].cast(TimestampType()))
+
+        pdf = df.toPandas()
+        print("********************************************************")
+        print(pdf)
+        print(pdf.dtypes)
+        print(df.toPandas()['timestamp'][0])
+        print(type(df.toPandas()['timestamp'][0]))
+        print("********************************************************")
 
     def test_filtered_frame(self):
         df = self.spark.range(3).toDF("i")

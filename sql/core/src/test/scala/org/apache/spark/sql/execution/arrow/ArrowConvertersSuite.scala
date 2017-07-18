@@ -32,7 +32,7 @@ import org.scalatest.BeforeAndAfterAll
 import org.apache.spark.SparkException
 import org.apache.spark.sql.{DataFrame, Row}
 import org.apache.spark.sql.test.SharedSQLContext
-import org.apache.spark.sql.types.{BinaryType, StructField, StructType}
+import org.apache.spark.sql.types.{BinaryType, IntegerType, StructField, StructType}
 import org.apache.spark.util.Utils
 
 
@@ -857,6 +857,66 @@ class ArrowConvertersSuite extends SharedSQLContext with BeforeAndAfterAll {
     collectAndValidate(df, json, "nanData-floating_point.json")
   }
 
+  test("test timestamp") {
+    val json =
+      s"""
+         |{
+         |  "schema" : {
+         |    "fields" : [ {
+         |      "name" : "a_timestamp",
+         |      "type" : {
+         |        "name" : "timestamp",
+         |        "unit": "MICROSECOND",
+         |        "timezone": null
+         |      },
+         |      "nullable" : true,
+         |      "children" : [ ],
+         |      "typeLayout" : {
+         |        "vectors" : [ {
+         |          "type" : "VALIDITY",
+         |          "typeBitWidth" : 1
+         |        }, {
+         |          "type" : "DATA",
+         |          "typeBitWidth" : 64
+         |        } ]
+         |      }
+         |    } ]
+         |  },
+         |  "batches" : [ {
+         |    "count" : 4,
+         |    "columns" : [ {
+         |      "name" : "a_timestamp",
+         |      "count" : 4,
+         |      "VALIDITY" : [ 1, 1, 1, 1 ],
+         |      "DATA" : [ 0, 86400000000, 172800000000, 259200000000 ]
+         |    } ]
+         |  } ]
+         |}
+       """.stripMargin
+
+    val sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS z", Locale.US)
+
+    val d1 = new Timestamp(sdf.parse("1970-01-01 00:00:00.000 UTC").getTime)
+    val d2 = new Timestamp(sdf.parse("1970-01-02 00:00:00.000 UTC").getTime)
+    val d3 = new Timestamp(sdf.parse("1970-01-03 00:00:00.000 UTC").getTime)
+    val d4 = new Timestamp(sdf.parse("1970-01-04 00:00:00.000 UTC").getTime)
+
+    val a_timestamp = Seq(d1, d2, d3, d4)
+
+    Seq(1, 2, 3).toDF().printSchema()
+
+    val df = a_timestamp.toDF("a_timestamp")
+
+
+    df.printSchema()
+
+    df.select(df("a_timestamp").cast(IntegerType)).show()
+
+    df.show()
+
+    collectAndValidate(df, json, "timestamp.json")
+  }
+
   test("partitioned DataFrame") {
     val json1 =
       s"""
@@ -974,7 +1034,6 @@ class ArrowConvertersSuite extends SharedSQLContext with BeforeAndAfterAll {
          |  } ]
          |}
        """.stripMargin
-
     val arrowPayloads = testData2.toArrowPayload.collect()
     // NOTE: testData2 should have 2 partitions -> 2 arrow batches in payload
     assert(arrowPayloads.length === 2)
@@ -988,6 +1047,7 @@ class ArrowConvertersSuite extends SharedSQLContext with BeforeAndAfterAll {
     validateConversion(schema, arrowPayloads(0), tempFile1)
     validateConversion(schema, arrowPayloads(1), tempFile2)
   }
+
 
   test("empty frame collect") {
     val arrowPayload = spark.emptyDataFrame.toArrowPayload.collect()
@@ -1211,6 +1271,10 @@ class ArrowConvertersSuite extends SharedSQLContext with BeforeAndAfterAll {
     val arrowRecordBatch = arrowPayload.loadBatch(allocator)
     vectorLoader.load(arrowRecordBatch)
     val jsonRoot = jsonReader.read()
+    println("arrowRoot:")
+    println(arrowRoot.contentToTSVString())
+    println("jsonRoot:")
+    println(jsonRoot.contentToTSVString())
     Validator.compareVectorSchemaRoot(arrowRoot, jsonRoot)
 
     jsonRoot.close()
