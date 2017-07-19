@@ -3007,11 +3007,11 @@ class ArrowTests(ReusedPySparkTestCase):
             StructField("2_int_t", IntegerType(), True),
             StructField("3_long_t", LongType(), True),
             StructField("4_float_t", FloatType(), True),
-            StructField("5_double_t", DoubleType(), True)
+            StructField("5_double_t", DoubleType(), True),
         ])
-        cls.data = [("a", 1, 10, 0.2, 2.0),
-                    ("b", 2, 20, 0.4, 4.0),
-                    ("c", 3, 30, 0.8, 6.0)]
+        cls.data = [("a", 1, 10, 0.2, 2.0,),
+                    ("b", 2, 20, 0.4, 4.0,),
+                    ("c", 3, 30, 0.8, 6.0,)]
 
     def assertFramesEqual(self, df_with_arrow, df_without):
         msg = ("DataFrame from Arrow is not equal" +
@@ -3054,18 +3054,33 @@ class ArrowTests(ReusedPySparkTestCase):
         pdf_arrow = df.toPandas()
         self.assertFramesEqual(pdf_arrow, pdf)
 
-    def test_timestamp(self):
-        from pyspark.sql.types import TimestampType
-        df = self.spark.range(0, 1).toDF("timestamp")
-        df = df.withColumn("timestamp", df['timestamp'].cast(TimestampType()))
+    def test_date(self):
+        import pandas as pd
+        from pyspark.sql.types import DateType
 
-        pdf = df.toPandas()
-        print("********************************************************")
-        print(pdf)
-        print(pdf.dtypes)
-        print(df.toPandas()['timestamp'][0])
-        print(type(df.toPandas()['timestamp'][0]))
-        print("********************************************************")
+        dates = [('1970-01-01',), ('1971-01-01',), ('1972-01-01',)]
+        pdf = pd.DataFrame(dates, columns=['date'])
+        pdf['date'] = pd.to_datetime(pdf['date'])
+
+        df = self.spark.createDataFrame(dates, ['date'])
+        df = df.withColumn('date', df['date'].cast(DateType()))
+        pdf_arrow = df.toPandas()
+
+        self.assertFramesEqual(pdf_arrow, pdf)
+
+    def test_timestamp(self):
+        import pandas as pd
+        from pyspark.sql.types import TimestampType
+
+        timestamps = [('1970-01-01 10:00:00',), ('1971-01-01 05:00:00',), ('1972-01-01 02:00:00',)]
+        pdf = pd.DataFrame(timestamps, columns=['timestamp'])
+        pdf['timestamp'] = pd.to_datetime(pdf['timestamp'])
+
+        df = self.spark.createDataFrame(timestamps, ['timestamp'])
+        df = df.withColumn("timestamp", df['timestamp'].cast(TimestampType()))
+        pdf_arrow = df.toPandas()
+
+        self.assertFramesEqual(pdf_arrow, pdf)
 
     def test_filtered_frame(self):
         df = self.spark.range(3).toDF("i")

@@ -857,6 +857,65 @@ class ArrowConvertersSuite extends SharedSQLContext with BeforeAndAfterAll {
     collectAndValidate(df, json, "nanData-floating_point.json")
   }
 
+  test("test date") {
+    val json =
+      s"""
+         |{
+         |  "schema" : {
+         |    "fields" : [ {
+         |      "name" : "a_date",
+         |      "type" : {
+         |        "name" : "date",
+         |        "unit": "DAY"
+         |      },
+         |      "nullable" : true,
+         |      "children" : [ ],
+         |      "typeLayout" : {
+         |        "vectors" : [ {
+         |          "type" : "VALIDITY",
+         |          "typeBitWidth" : 1
+         |        }, {
+         |          "type" : "DATA",
+         |          "typeBitWidth" : 32
+         |        } ]
+         |      }
+         |    } ]
+         |  },
+         |  "batches" : [ {
+         |    "count" : 4,
+         |    "columns" : [ {
+         |      "name" : "a_date",
+         |      "count" : 4,
+         |      "VALIDITY" : [ 1, 1, 1, 1 ],
+         |      "DATA" : [ 0, 1, 2, 3 ]
+         |    } ]
+         |  } ]
+         |}
+       """.stripMargin
+
+    val sdf = new SimpleDateFormat("yyyy-MM-dd", Locale.US)
+
+    val d1 = new Date(sdf.parse("1970-01-01").getTime)
+    val d2 = new Date(sdf.parse("1970-01-02").getTime)
+    val d3 = new Date(sdf.parse("1970-01-03").getTime)
+    val d4 = new Date(sdf.parse("1970-01-04").getTime)
+
+    val a_date = Seq(d1, d2, d3, d4)
+
+    Seq(1, 2, 3).toDF().printSchema()
+
+    val df = a_date.toDF("a_date")
+
+
+    df.printSchema()
+
+    df.select(df("a_date").cast(IntegerType)).show()
+
+    df.show()
+
+    collectAndValidate(df, json, "date.json")
+  }
+
   test("test timestamp") {
     val json =
       s"""
@@ -1102,15 +1161,6 @@ class ArrowConvertersSuite extends SharedSQLContext with BeforeAndAfterAll {
     runUnsupported { arrayData.toDF().toArrowPayload.collect() }
     runUnsupported { mapData.toDF().toArrowPayload.collect() }
     runUnsupported { complexData.toArrowPayload.collect() }
-
-    val sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS z", Locale.US)
-    val d1 = new Date(sdf.parse("2015-04-08 13:10:15.000 UTC").getTime)
-    val d2 = new Date(sdf.parse("2016-05-09 13:10:15.000 UTC").getTime)
-    runUnsupported { Seq(d1, d2).toDF("date").toArrowPayload.collect() }
-
-    val ts1 = new Timestamp(sdf.parse("2013-04-08 01:10:15.567 UTC").getTime)
-    val ts2 = new Timestamp(sdf.parse("2013-04-08 13:10:10.789 UTC").getTime)
-    runUnsupported { Seq(ts1, ts2).toDF("timestamp").toArrowPayload.collect() }
   }
 
   test("test Arrow Validator") {
