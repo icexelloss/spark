@@ -20,7 +20,7 @@ package org.apache.spark.sql.execution.arrow
 import scala.collection.JavaConverters._
 
 import org.apache.arrow.memory.RootAllocator
-import org.apache.arrow.vector.types.FloatingPointPrecision
+import org.apache.arrow.vector.types.{DateUnit, FloatingPointPrecision, TimeUnit}
 import org.apache.arrow.vector.types.pojo.{ArrowType, Field, FieldType, Schema}
 
 import org.apache.spark.sql.types._
@@ -41,6 +41,8 @@ object ArrowUtils {
     case DoubleType => new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE)
     case StringType => ArrowType.Utf8.INSTANCE
     case BinaryType => ArrowType.Binary.INSTANCE
+    case DateType => new ArrowType.Date(DateUnit.DAY)
+    case TimestampType => new ArrowType.Timestamp(TimeUnit.MICROSECOND, "UTC")
     case DecimalType.Fixed(precision, scale) => new ArrowType.Decimal(precision, scale)
     case _ => throw new UnsupportedOperationException(s"Unsupported data type: ${dt.simpleString}")
   }
@@ -57,6 +59,8 @@ object ArrowUtils {
       if float.getPrecision() == FloatingPointPrecision.DOUBLE => DoubleType
     case ArrowType.Utf8.INSTANCE => StringType
     case ArrowType.Binary.INSTANCE => BinaryType
+    case d: ArrowType.Date => DateType
+    case d: ArrowType.Timestamp => TimestampType
     case d: ArrowType.Decimal => DecimalType(d.getPrecision, d.getScale)
     case _ => throw new UnsupportedOperationException(s"Unsupported data type: $dt")
   }

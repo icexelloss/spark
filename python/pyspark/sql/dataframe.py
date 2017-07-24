@@ -1709,6 +1709,19 @@ class DataFrame(object):
         jdf = self._jdf.toDF(self._jseq(cols))
         return DataFrame(jdf, self.sql_ctx)
 
+    def _localize_arrow_timestamp(self, pdf):
+        """Returns a new :class:`pandas.DataFrame` that with localized timestamps.
+
+        This is needed because the Arrow timestamps are UTC but Spark presents timestamp in local timezone.
+
+        Note: This requires tzlocal package
+
+        """
+        from tzlocal import get_localzone
+        for ts_col_name in (f.name for f in self.schema if f.dataType == TimestampType()):
+            pdf[ts_col_name] = pdf[ts_col_name].dt.tz_convert(get_localzone()).dt.tz_localize(None)
+        return pdf
+
     @since(1.3)
     def toPandas(self):
         """
@@ -1731,7 +1744,7 @@ class DataFrame(object):
                 tables = self._collectAsArrow()
                 if tables:
                     table = pyarrow.concat_tables(tables)
-                    return table.to_pandas()
+                    return self._localize_arrow_timestamp(table.to_pandas())
                 else:
                     return pd.DataFrame.from_records([], columns=self.columns)
             except ImportError as e:

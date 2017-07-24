@@ -3072,14 +3072,13 @@ class ArrowTests(ReusedPySparkTestCase):
         import pandas as pd
         from pyspark.sql.types import TimestampType
 
-        timestamps = [('1970-01-01 10:00:00',), ('1971-01-01 05:00:00',), ('1972-01-01 02:00:00',)]
+        timestamps = [('1970-01-01',), ('2000-01-01',), ('2017-05-25',)]
         pdf = pd.DataFrame(timestamps, columns=['timestamp'])
         pdf['timestamp'] = pd.to_datetime(pdf['timestamp'])
 
         df = self.spark.createDataFrame(timestamps, ['timestamp'])
         df = df.withColumn("timestamp", df['timestamp'].cast(TimestampType()))
         pdf_arrow = df.toPandas()
-
         self.assertFramesEqual(pdf_arrow, pdf)
 
     def test_filtered_frame(self):

@@ -42,6 +42,8 @@ class ArrowUtilsSuite extends SparkFunSuite {
     roundtrip(StringType)
     roundtrip(BinaryType)
     roundtrip(DecimalType.SYSTEM_DEFAULT)
+    roundtrip(DateType)
+    roundtrip(TimestampType)
   }
 
   test("array") {

@@ -857,7 +857,7 @@ class ArrowConvertersSuite extends SharedSQLContext with BeforeAndAfterAll {
     collectAndValidate(df, json, "nanData-floating_point.json")
   }
 
-  test("test date") {
+  test("date conversion") {
     val json =
       s"""
          |{
@@ -901,22 +901,12 @@ class ArrowConvertersSuite extends SharedSQLContext with BeforeAndAfterAll {
     val d4 = new Date(sdf.parse("1970-01-04").getTime)
 
     val a_date = Seq(d1, d2, d3, d4)
-
-    Seq(1, 2, 3).toDF().printSchema()
-
     val df = a_date.toDF("a_date")
-
-
-    df.printSchema()
-
-    df.select(df("a_date").cast(IntegerType)).show()
-
-    df.show()
 
     collectAndValidate(df, json, "date.json")
   }
 
-  test("test timestamp") {
+  test("timestamp conversion") {
     val json =
       s"""
          |{
@@ -926,7 +916,7 @@ class ArrowConvertersSuite extends SharedSQLContext with BeforeAndAfterAll {
          |      "type" : {
          |        "name" : "timestamp",
          |        "unit": "MICROSECOND",
-         |        "timezone": null
+         |        "timezone": "UTC"
          |      },
          |      "nullable" : true,
          |      "children" : [ ],
@@ -961,17 +951,7 @@ class ArrowConvertersSuite extends SharedSQLContext with BeforeAndAfterAll {
     val d4 = new Timestamp(sdf.parse("1970-01-04 00:00:00.000 UTC").getTime)
 
     val a_timestamp = Seq(d1, d2, d3, d4)
-
-    Seq(1, 2, 3).toDF().printSchema()
-
     val df = a_timestamp.toDF("a_timestamp")
-
-
-    df.printSchema()
-
-    df.select(df("a_timestamp").cast(IntegerType)).show()
-
-    df.show()
 
     collectAndValidate(df, json, "timestamp.json")
   }
@@ -1321,10 +1301,6 @@ class ArrowConvertersSuite extends SharedSQLContext with BeforeAndAfterAll {
     val arrowRecordBatch = arrowPayload.loadBatch(allocator)
     vectorLoader.load(arrowRecordBatch)
     val jsonRoot = jsonReader.read()
-    println("arrowRoot:")
-    println(arrowRoot.contentToTSVString())
-    println("jsonRoot:")
-    println(jsonRoot.contentToTSVString())
     Validator.compareVectorSchemaRoot(arrowRoot, jsonRoot)
 
     jsonRoot.close()

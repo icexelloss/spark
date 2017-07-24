@@ -71,36 +71,6 @@ private[sql] object ArrowPayload {
 private[sql] object ArrowConverters {
 
   /**
-   * Map a Spark DataType to ArrowType.
-   */
-  private[arrow] def sparkTypeToArrowType(dataType: DataType): ArrowType = {
-    dataType match {
-      case BooleanType => ArrowType.Bool.INSTANCE
-      case ShortType => new ArrowType.Int(8 * ShortType.defaultSize, true)
-      case IntegerType => new ArrowType.Int(8 * IntegerType.defaultSize, true)
-      case LongType => new ArrowType.Int(8 * LongType.defaultSize, true)
-      case FloatType => new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE)
-      case DoubleType => new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE)
-      case ByteType => new ArrowType.Int(8, true)
-      case StringType => ArrowType.Utf8.INSTANCE
-      case BinaryType => ArrowType.Binary.INSTANCE
-      case DateType => new ArrowType.Date(DateUnit.DAY)
-      case TimestampType => new ArrowType.Timestamp(TimeUnit.MICROSECOND, null)
-      case _ => throw new UnsupportedOperationException(s"Unsupported data type: $dataType")
-    }
-  }
-
-  /**
-   * Convert a Spark Dataset schema to Arrow schema.
-   */
-  private[arrow] def schemaToArrowSchema(schema: StructType): Schema = {
-    val arrowFields = schema.fields.map { f =>
-      new Field(f.name, f.nullable, sparkTypeToArrowType(f.dataType), List.empty[Field].asJava)
-    }
-    new Schema(arrowFields.toList.asJava)
-  }
-
-  /**
    * Maps Iterator from InternalRow to ArrowPayload. Limit ArrowRecordBatch size in ArrowPayload
    * by setting maxRecordsPerBatch or use 0 to fully consume rowIter.
    */
@@ -402,7 +372,6 @@ private[arrow] class TimeStampColumnWriter(
 
   override def setNull(): Unit = valueMutator.setNull(count)
   override def setValue(row: InternalRow): Unit = {
-    println(row.getLong(ordinal))
     valueMutator.setSafe(count, row.getLong(ordinal))
   }
 }
