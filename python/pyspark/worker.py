@@ -34,6 +34,7 @@ from pyspark.serializers import write_with_length, write_int, read_long, \
     BatchedSerializer, ArrowStreamPandasSerializer
 from pyspark.sql.types import toArrowType
 from pyspark import shuffle
+from pyspark.sql.types import StructType, IntegerType, LongType, FloatType, DoubleType
 
 pickleSer = PickleSerializer()
 utf8_deserializer = UTF8Deserializer()
@@ -103,6 +104,25 @@ def read_single_udf(pickleSer, infile, eval_type):
     else:
         return arg_offsets, wrap_udf(row_func, return_type)
 
+def read_single_pandas_udf(pickleSer, infile):
+    num_arg = read_int(infile)
+    arg_offsets = [read_int(infile) for i in range(num_arg)]
+    row_func = None
+    for i in range(read_int(infile)):
+        f, return_type = read_command(pickleSer, infile)
+        if row_func is None:
+            row_func = f
+        else:
+            row_func = chain(row_func, f)
+    # the last returnType will be the return type of UDF
+    return arg_offsets, row_func
+
+def read_schema_json(infile):
+    import json
+    length = read_int(infile)
+    json_bytes = infile.read(length)
+    json_obj = json.loads(json_bytes.decode('utf-8'))
+    return StructType.fromJson(json_obj)
 
 def read_udfs(pickleSer, infile, eval_type):
     num_udfs = read_int(infile)
@@ -130,6 +150,42 @@ def read_udfs(pickleSer, infile, eval_type):
     # profiling is not supported for UDF
     return func, None, ser, ser
 
+def spark_type_to_np_type(datatype):
+    import numpy as np
+    if datatype == IntegerType():
+        return np.int32
+    elif datatype == LongType():
+        return np.int64
+    elif datatype == FloatType():
+        return np.float32
+    elif datatype == DoubleType():
+        return np.float64
+    else:
+        return None
+
+def coerce_dataframe(pdf, schema):
+    for (col, pandas_type, spark_field) in zip(pdf.columns, pdf.dtypes, schema.fields):
+        expected_type = spark_type_to_np_type(spark_field.dataType)
+        if expected_type and pandas_type != expected_type:
+            pdf[col] = pdf[col].astype(expected_type)
+    return pdf
+
+def read_pandas_udfs(pickleSer, infile):
+    import pyarrow as pa
+    num_udfs = read_int(infile)
+    assert num_udfs == 1, 'Pandas udf only supports one udf'
+    _, udf = read_single_pandas_udf(pickleSer, infile)
+    schema = read_schema_json(infile)
+
+    def mapper(record_batch):
+        in_df = record_batch.to_pandas()
+        out_df = coerce_dataframe(udf(in_df), schema)
+        return pa.RecordBatch.from_pandas(out_df, preserve_index=False)
+
+    func = lambda _, it: map(mapper, it)
+    ser = ArrowSerializer()
+
+    return func, None, ser, ser
 
 def main(infile, outfile):
     try:

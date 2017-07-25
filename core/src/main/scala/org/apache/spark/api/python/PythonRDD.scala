@@ -83,6 +83,7 @@ private[spark] case class PythonFunction(
  */
 private[spark] case class ChainedPythonFunctions(funcs: Seq[PythonFunction])
 
+
 /** Thrown for exceptions in user Python code. */
 private[spark] class PythonException(msg: String, cause: Exception)
   extends RuntimeException(msg, cause)

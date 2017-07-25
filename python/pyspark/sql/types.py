@@ -1620,7 +1620,8 @@ def toArrowType(dt):
     elif type(dt) == StringType:
         arrow_type = pa.string()
     else:
-        raise TypeError("Unsupported type in conversion to Arrow: " + str(dt))
+        arrow_type = None
+        #raise TypeError("Unsupported type in conversion to Arrow: " + str(dt))
     return arrow_type
 
 

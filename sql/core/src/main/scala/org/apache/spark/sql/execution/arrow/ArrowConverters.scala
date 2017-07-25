@@ -34,9 +34,43 @@ import org.apache.spark.sql.execution.vectorized.{ArrowColumnVector, ColumnarBat
 import org.apache.spark.sql.types._
 import org.apache.spark.util.Utils
 
+trait ClosableIterator[T] extends Iterator[T] with AutoCloseable
+
+class ConcatClosableIterator[T](iters: Iterator[ClosableIterator[T]])
+  extends ClosableIterator[T] {
+  var curIter: ClosableIterator[T] = _
+
+  private def advance(): Unit = {
+    require(curIter == null || !curIter.hasNext, "Should not advance if curIter is not empty")
+    require(iters.hasNext, "Should not advance if iters doesn't have next")
+    closeCurrent()
+    curIter = iters.next()
+  }
+
+  private def closeCurrent(): Unit = if (curIter != null) curIter.close()
+
+  override def close(): Unit = closeCurrent()
+
+  override def hasNext: Boolean = {
+    if (curIter == null || !curIter.hasNext) {
+      if (iters.hasNext) {
+        advance()
+        hasNext
+      } else {
+        false
+      }
+    } else {
+      true
+    }
+  }
+
+  override def next(): T = curIter.next()
+}
 
 /**
  * Store Arrow data in a form that can be serialized by Spark and served to a Python process.
+ *
+ * The bytes are in arrow file format.
  */
 private[sql] class ArrowPayload private[sql] (payload: Array[Byte]) extends Serializable {
 
@@ -187,9 +221,8 @@ private[sql] object ArrowConverters {
   /**
    * Convert a byte array to an ArrowRecordBatch.
    */
-  private[arrow] def byteArrayToBatch(
-      batchBytes: Array[Byte],
-      allocator: BufferAllocator): ArrowRecordBatch = {
+  private[arrow] def byteArrayToBatch(batchBytes: Array[Byte],
+                                      allocator: BufferAllocator): ArrowRecordBatch = {
     val in = new ByteArrayReadableSeekableByteChannel(batchBytes)
     val reader = new ArrowFileReader(in, allocator)
 

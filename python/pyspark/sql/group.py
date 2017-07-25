@@ -20,6 +20,7 @@ from pyspark.rdd import ignore_unicode_prefix
 from pyspark.sql.column import Column, _to_seq, _to_java_column, _create_column_from_literal
 from pyspark.sql.dataframe import DataFrame
 from pyspark.sql.types import *
+from pyspark.sql.functions import pandas_udf
 
 __all__ = ["GroupedData"]
 
@@ -54,9 +55,10 @@ class GroupedData(object):
     .. versionadded:: 1.3
     """
 
-    def __init__(self, jgd, sql_ctx):
+    def __init__(self, jgd, sql_ctx, grouping_cols=None):
         self._jgd = jgd
         self.sql_ctx = sql_ctx
+        self.grouping_cols = grouping_cols
 
     @ignore_unicode_prefix
     @since(1.3)
@@ -194,6 +196,52 @@ class GroupedData(object):
             jgd = self._jgd.pivot(pivot_col, values)
         return GroupedData(jgd, self.sql_ctx)
 
+    def apply(self, udf_column):
+        """
+        Maps each group of the current [[DataFrame]] using a user defined function and returns the result as a :class:`DataFrame`.
+
+        The user defined function is a transformation on :class:`pandas.DataFrame`. The returned :class:`pandas.DataFrame` can have different rows and/or columns as the input :class:`pandas.DataFrame`.
+
+        The schema of the returned :class:`pandas.DataFrame`
+
+        """
+        udf_obj = udf_column.udf_obj
+        func = udf_obj.func
+        grouping_cols = self.grouping_cols
+
+        def new_func(pdf):
+            import pandas as pd
+            out = func(pdf)
+            if isinstance(out, pd.DataFrame):
+                out_df = out
+            elif isinstance(out, pd.Series):
+                out_df = pdf[grouping_cols][:1]
+                # There should be only a few items in the Series
+                for i in range(len(out)):
+                    out_df['_{}'.format(i)] = out[i]
+            else:
+                out_df = pdf[grouping_cols][:1]
+                out_df['_1'] = out
+            #else:
+            #    raise ValueError("Unsupported returned value from udf: {}. "
+            #                     "Must be pd.DataFrame or pd.Series".format(out))
+            return out_df
+
+        if callable(udf_column):
+            new_udf_column = pandas_udf(new_func, udf_obj._returnType,
+                                        udf_obj._add_schema, udf_obj._group_add_schema)
+            udf_column = new_udf_column
+            udf_obj = udf_column.udf_obj
+            df = DataFrame(self._jgd.df(), self.sql_ctx)
+            if (udf_obj._add_schema):
+                udf_obj._returnType = StructType(df.schema.fields + udf_obj._add_schema.fields)
+            elif (udf_obj._group_add_schema):
+                udf_obj._returnType = \
+                    StructType(df.select(*self.grouping_cols).schema.fields + udf_obj._group_add_schema.fields)
+
+            udf_column = udf_column(df)
+        jdf = self._jgd.flatMapGroupsInPandas(udf_column._jc.expr())
+        return DataFrame(jdf, self.sql_ctx)
 
 def _test():
     import doctest

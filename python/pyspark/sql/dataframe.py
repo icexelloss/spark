@@ -1227,7 +1227,7 @@ class DataFrame(object):
         """
         jgd = self._jdf.groupBy(self._jcols(*cols))
         from pyspark.sql.group import GroupedData
-        return GroupedData(jgd, self.sql_ctx)
+        return GroupedData(jgd, self.sql_ctx, list(cols))
 
     @since(1.4)
     def rollup(self, *cols):

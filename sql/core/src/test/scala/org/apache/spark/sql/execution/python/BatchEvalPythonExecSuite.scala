@@ -44,6 +44,7 @@ class BatchEvalPythonExecSuite extends SparkPlanTest with SharedSQLContext {
   test("Python UDF: push down deterministic FilterExec predicates") {
     val df = Seq(("Hello", 4)).toDF("a", "b")
       .where("dummyPythonUDF(b) and dummyPythonUDF(a) and a in (3, 4)")
+    print(df.queryExecution.executedPlan)
     val qualifiedPlanNodes = df.queryExecution.executedPlan.collect {
       case f @ FilterExec(
           And(_: AttributeReference, _: AttributeReference),

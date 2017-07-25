@@ -20,7 +20,7 @@ package org.apache.spark.sql.execution.arrow
 import scala.collection.JavaConverters._
 
 import org.apache.arrow.memory.RootAllocator
-import org.apache.arrow.vector.types.FloatingPointPrecision
+import org.apache.arrow.vector.types.{DateUnit, FloatingPointPrecision, TimeUnit}
 import org.apache.arrow.vector.types.pojo.{ArrowType, Field, FieldType, Schema}
 
 import org.apache.spark.sql.types._
@@ -42,6 +42,8 @@ object ArrowUtils {
     case StringType => ArrowType.Utf8.INSTANCE
     case BinaryType => ArrowType.Binary.INSTANCE
     case DecimalType.Fixed(precision, scale) => new ArrowType.Decimal(precision, scale)
+    case DateType => new ArrowType.Date(DateUnit.DAY)
+    case TimestampType => new ArrowType.Timestamp(TimeUnit.MICROSECOND, "UTC")
     case _ => throw new UnsupportedOperationException(s"Unsupported data type: ${dt.simpleString}")
   }
 
@@ -58,6 +60,8 @@ object ArrowUtils {
     case ArrowType.Utf8.INSTANCE => StringType
     case ArrowType.Binary.INSTANCE => BinaryType
     case d: ArrowType.Decimal => DecimalType(d.getPrecision, d.getScale)
+    case _: ArrowType.Date => DateType
+    case _: ArrowType.Timestamp => TimestampType
     case _ => throw new UnsupportedOperationException(s"Unsupported data type: $dt")
   }
 
@@ -105,5 +109,19 @@ object ArrowUtils {
       val dt = fromArrowField(field)
       StructField(field.getName, dt, field.isNullable)
     })
+  }
+
+  def assertDataTypeEquals(sparkSchema: StructType, arrowSchema: Schema): Unit = {
+    // Arrow schema contains index information, need to drop those
+    val actualSchema: StructType = StructType(fromArrowSchema(arrowSchema))
+
+    require(sparkSchema.size == actualSchema.size,
+      s"Expected schema doesn't match actual schema. actual: $actualSchema expected: $sparkSchema")
+    (actualSchema zip sparkSchema).foreach{ case (f1, f2) =>
+       require(f1.dataType.equals(f2.dataType),
+         s"Expected schema doesn't match actual schema. \n " +
+           s"actual: $actualSchema \n expected: $sparkSchema \n " +
+           s"actual datatype: $f1 \n expected datatype: $f2 \n")
+    }
   }
 }

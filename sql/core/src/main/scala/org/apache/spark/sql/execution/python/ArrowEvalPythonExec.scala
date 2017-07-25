@@ -44,10 +44,12 @@ case class ArrowEvalPythonExec(udfs: Seq[PythonUDF], output: Seq[Attribute], chi
     val schemaOut = StructType.fromAttributes(output.drop(child.output.length).zipWithIndex
       .map { case (attr, i) => attr.withName(s"_$i") })
 
+    // TODO: Properly batch rows
+
     val columnarBatchIter = new ArrowPythonRunner(
-        funcs, conf.arrowMaxRecordsPerBatch, bufferSize, reuseWorker,
+        funcs, bufferSize, reuseWorker,
         PythonEvalType.SQL_PANDAS_UDF, argOffsets, schema)
-      .compute(iter, context.partitionId(), context)
+      .compute(Iterator(iter), context.partitionId(), context)
 
     new Iterator[InternalRow] {
 

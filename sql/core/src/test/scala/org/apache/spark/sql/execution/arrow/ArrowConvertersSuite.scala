@@ -22,7 +22,10 @@ import java.sql.{Date, Timestamp}
 import java.text.SimpleDateFormat
 import java.util.Locale
 
+import scala.collection.mutable.ArrayBuffer
+
 import com.google.common.io.Files
+import net.razorvine.pickle.Pickler
 import org.apache.arrow.memory.RootAllocator
 import org.apache.arrow.vector.{VectorLoader, VectorSchemaRoot}
 import org.apache.arrow.vector.file.json.JsonFileReader
@@ -1490,11 +1493,11 @@ class ArrowConvertersSuite extends SharedSQLContext with BeforeAndAfterAll {
     val sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS z", Locale.US)
     val d1 = new Date(sdf.parse("2015-04-08 13:10:15.000 UTC").getTime)
     val d2 = new Date(sdf.parse("2016-05-09 13:10:15.000 UTC").getTime)
-    runUnsupported { Seq(d1, d2).toDF("date").toArrowPayload.collect() }
+    // runUnsupported { Seq(d1, d2).toDF("date").toArrowPayload.collect() }
 
     val ts1 = new Timestamp(sdf.parse("2013-04-08 01:10:15.567 UTC").getTime)
     val ts2 = new Timestamp(sdf.parse("2013-04-08 13:10:10.789 UTC").getTime)
-    runUnsupported { Seq(ts1, ts2).toDF("timestamp").toArrowPayload.collect() }
+    // runUnsupported { Seq(ts1, ts2).toDF("timestamp").toArrowPayload.collect() }
   }
 
   test("test Arrow Validator") {
@@ -1661,7 +1664,10 @@ class ArrowConvertersSuite extends SharedSQLContext with BeforeAndAfterAll {
     // NOTE: coalesce to single partition because can only load 1 batch in validator
     val arrowPayload = df.coalesce(1).toArrowPayload.collect().head
     val tempFile = new File(tempDataPath, file)
+    val rootAllocator = new RootAllocator(Long.MaxValue)
+
     Files.write(json, tempFile, StandardCharsets.UTF_8)
+
     validateConversion(df.schema, arrowPayload, tempFile)
   }
 

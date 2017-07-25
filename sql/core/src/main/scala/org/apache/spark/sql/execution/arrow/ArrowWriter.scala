@@ -55,7 +55,10 @@ object ArrowWriter {
       case (DoubleType, vector: NullableFloat8Vector) => new DoubleWriter(vector)
       case (StringType, vector: NullableVarCharVector) => new StringWriter(vector)
       case (BinaryType, vector: NullableVarBinaryVector) => new BinaryWriter(vector)
-      case (ArrayType(_, _), vector: ListVector) =>
+      case (DateType, vector: NullableDateDayVector) => new DateWriter(vector)
+      case (TimestampType, vector: NullableTimeStampMicroTZVector) => new TimestampWriter(vector)
+
+    case (ArrayType(_, _), vector: ListVector) =>
         val elementVector = createFieldWriter(vector.getDataVector())
         new ArrayWriter(vector, elementVector)
       case (StructType(_), vector: NullableMapVector) =>
@@ -64,7 +67,8 @@ object ArrowWriter {
         }
         new StructWriter(vector, children.toArray)
       case (dt, _) =>
-        throw new UnsupportedOperationException(s"Unsupported data type: ${dt.simpleString}")
+        throw new UnsupportedOperationException(
+          s"Unsupported data type: ${dt.simpleString} vector: $vector")
     }
   }
 }
@@ -254,6 +258,35 @@ private[arrow] class BinaryWriter(
     valueMutator.setSafe(count, bytes, 0, bytes.length)
   }
 }
+
+private[arrow] class DateWriter(
+  val valueVector: NullableDateDayVector) extends ArrowFieldWriter {
+
+  override def valueMutator: NullableDateDayVector#Mutator = valueVector.getMutator()
+
+  override def setNull(): Unit = {
+    valueMutator.setNull(count)
+  }
+
+  override def setValue(input: SpecializedGetters, ordinal: Int): Unit = {
+    valueMutator.setSafe(count, input.getInt(ordinal))
+  }
+}
+
+private[arrow] class TimestampWriter(
+  val valueVector: NullableTimeStampMicroTZVector) extends ArrowFieldWriter {
+
+  override def valueMutator: NullableTimeStampMicroTZVector#Mutator = valueVector.getMutator()
+
+  override def setNull(): Unit = {
+    valueMutator.setNull(count)
+  }
+
+  override def setValue(input: SpecializedGetters, ordinal: Int): Unit = {
+    valueMutator.setSafe(count, input.getLong(ordinal))
+  }
+}
+
 
 private[arrow] class ArrayWriter(
     val valueVector: ListVector,

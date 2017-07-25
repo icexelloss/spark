@@ -191,9 +191,8 @@ class FramedSerializer(Serializer):
 
 class ArrowSerializer(FramedSerializer):
     """
-    Serializes an Arrow stream.
+    Serializes an pyarrow.RecordBatch to/from Arrow File Format
     """
-
     def dumps(self, batch):
         import pyarrow as pa
         import io
@@ -216,7 +215,7 @@ def _create_batch(series):
     import pyarrow as pa
     # Make input conform to [(series1, type1), (series2, type2), ...]
     if not isinstance(series, (list, tuple)) or \
-            (len(series) == 2 and isinstance(series[1], pa.DataType)):
+            (len(series) == 2 and (series[1] is None or isinstance(series[1], pa.DataType))):
         series = [series]
     series = ((s, None) if not isinstance(s, (list, tuple)) else s for s in series)
 

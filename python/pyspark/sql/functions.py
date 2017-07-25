@@ -18,6 +18,7 @@
 """
 A collections of builtin functions
 """
+import collections
 import math
 import sys
 import functools
@@ -28,7 +29,8 @@ if sys.version < "3":
 from pyspark import since, SparkContext
 from pyspark.rdd import _prepare_for_python_RDD, ignore_unicode_prefix
 from pyspark.serializers import PickleSerializer, AutoBatchedSerializer
-from pyspark.sql.types import StringType, DataType, _parse_datatype_string
+from pyspark.sql.types import *
+from pyspark.sql.types import _parse_datatype_string
 from pyspark.sql.column import Column, _to_java_column, _to_seq
 from pyspark.sql.dataframe import DataFrame
 
@@ -2037,6 +2039,43 @@ def _wrap_function(sc, func, returnType):
     return sc._jvm.PythonFunction(bytearray(pickled_command), env, includes, sc.pythonExec,
                                   sc.pythonVer, broadcast_vars, sc._javaAccumulator)
 
+def _from_np_type(np_type):
+    import pandas as pd
+    import numpy as np
+    if np_type == np.int32:
+        return IntegerType()
+    elif np_type == np.int64:
+        return LongType()
+    elif np_type == np.float32:
+        return FloatType()
+    elif np_type == np.float64:
+        return DoubleType()
+    elif np_type == np.object:
+        return StringType()
+    elif np_type == np.dtype('datetime64[ns]') or type(np_type) == pd.api.types.DatetimeTZDtype:
+        return TimestampType()
+    else:
+        raise ValueError("Unsupported numpy type: {}".format(np_type))
+
+def _create_schema(schema):
+    import pandas as pd
+    if schema is None:
+        return None
+    elif isinstance(schema, DataType):
+        return schema
+    elif isinstance(schema, str):
+        return _parse_datatype_string(schema)
+    elif isinstance(schema, tuple):
+        return StructType([StructField(schema[0], schema[1])])
+    elif isinstance(schema, collections.abc.Sequence):
+        return StructType([StructField(n, dt) for (n, dt) in schema])
+    elif isinstance(schema, pd.Series):
+        return StructType([StructField(schema.axes[0][i], _from_np_type(schema[i])) for i in range(len(schema))])
+    else:
+        raise ValueError("Unrecognized schema: {}".format(schema))
+
+def _is_schema(schema):
+    return isinstance(schema, (str, DataType, collections.abc.Sequence, tuple))
 
 class UserDefinedFunction(object):
     """
@@ -2111,6 +2150,30 @@ class UserDefinedFunction(object):
         assignments = tuple(
             a for a in functools.WRAPPER_ASSIGNMENTS if a != '__name__' and a != '__module__')
 
+        # if self._vectorized :
+        #     @functools.wraps(self.func, assigned=assignments)
+        #     def wrapper(*args):
+        #         column_indices = []
+        #         cols = []
+        #         for arg in args:
+        #             if isinstance(arg, DataFrame):
+        #                 df = arg
+        #                 column_indices.append(df.columns)
+        #                 cols += [df[c] for c in df.columns]
+
+        #             elif isinstance(arg, Column):
+        #                 col = arg
+        #                 column_indices.append(col._jc.expr().name())
+        #                 cols.append(col)
+
+        #         user_func = self.func
+        #         self.func = lambda pdf: user_func(*[pdf[i] for i in column_indices])
+        #         return self(*cols)
+        # else:
+        #     @functools.wraps(self.func,  assigned=assignments)
+        #     def wrapper(*args):
+        #         return self(*args)
+
         @functools.wraps(self.func, assigned=assignments)
         def wrapper(*args):
             return self(*args)
@@ -2119,10 +2182,10 @@ class UserDefinedFunction(object):
         wrapper.__module__ = (self.func.__module__ if hasattr(self.func, '__module__')
                               else self.func.__class__.__module__)
         wrapper.func = self.func
-        wrapper.returnType = self.returnType
+        if self._returnType:
+            wrapper.returnType = self.returnType
 
         return wrapper
-
 
 def _create_udf(f, returnType, vectorized):
 
@@ -2142,7 +2205,6 @@ def _create_udf(f, returnType, vectorized):
         return functools.partial(_udf, returnType=return_type, vectorized=vectorized)
     else:
         return _udf(f=f, returnType=returnType, vectorized=vectorized)
-
 
 @since(1.3)
 def udf(f=None, returnType=StringType()):
