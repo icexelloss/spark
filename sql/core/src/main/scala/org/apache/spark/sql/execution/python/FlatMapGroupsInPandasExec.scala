@@ -60,8 +60,7 @@ case class FlatMapGroupsInPandasExec(
     val chainedFunc = Seq(ChainedPythonFunctions(Seq(pandasFunction)))
     val argOffsets = Array(Array(0))
 
-    val schemaOut = StructType.fromAttributes(output.drop(child.output.length).zipWithIndex
-      .map { case (attr, i) => attr.withName(s"_$i") })
+    val schemaOut = StructType.fromAttributes(output)
 
     inputRDD.mapPartitionsInternal { iter =>
       val grouped = GroupedIterator(iter, groupingAttributes, child.output)
@@ -76,8 +75,8 @@ case class FlatMapGroupsInPandasExec(
       new Iterator[InternalRow] {
         private var currentIter = if (columnarBatchIter.hasNext) {
           val batch = columnarBatchIter.next()
-          assert(schemaOut.equals(batch.schema),
-            s"Invalid schema from pandas_udf: expected $schemaOut, got ${batch.schema}")
+          // assert(schemaOut.equals(batch.schema),
+          //  s"Invalid schema from pandas_udf: expected $schemaOut, got ${batch.schema}")
           batch.rowIterator.asScala
         } else {
           Iterator.empty

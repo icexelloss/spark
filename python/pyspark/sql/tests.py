@@ -3567,12 +3567,13 @@ class GroupbyApplyTests(ReusedPySparkTestCase):
         from pyspark.sql.functions import pandas_udf, array, explode, col, lit
         df = self.spark.range(10).toDF('id').withColumn("vs", array([lit(i) for i in range(10)])).withColumn("v", explode(col('vs'))).drop('vs')
 
-        def foo(v):
-            return v * 1.0
+        def foo(v1, v2):
+            import pandas as pd
+            return pd.DataFrame({'v1': v1 + 1, 'v2': v2 + 2})
 
-        foo_udf = pandas_udf(foo, StructType([StructField('v2', DoubleType())]))
+        foo_udf = pandas_udf(foo, StructType([StructField('v1', DoubleType()), StructField('v2', DoubleType())]))
 
-        df2 = df.groupby('id').apply(foo_udf(df['v'])).sort('v2')
+        df2 = df.groupby('id').apply(foo_udf(df['v'], df['v'])).sort('v2')
         df2.show(1000)
 
 
