@@ -58,9 +58,13 @@ case class FlatMapGroupsInPandasExec(
     val bufferSize = inputRDD.conf.getInt("spark.buffer.size", 65536)
     val reuseWorker = inputRDD.conf.getBoolean("spark.python.worker.reuse", defaultValue = true)
     val chainedFunc = Seq(ChainedPythonFunctions(Seq(pandasFunction)))
-    val argOffsets = Array(Array(0))
+    // val argOffsets = Array(Array(0))
 
-    val schemaOut = StructType.fromAttributes(output)
+    println("****************************************************************")
+    println("children schema: " + child.schema)
+    println("****************************************************************")
+
+    val argOffsets = Array((0 until child.schema.length).toArray)
 
     inputRDD.mapPartitionsInternal { iter =>
       val grouped = GroupedIterator(iter, groupingAttributes, child.output)

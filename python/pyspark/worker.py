@@ -75,22 +75,38 @@ def wrap_udf(f, return_type):
 
 
 def wrap_pandas_udf(f, return_type):
-    arrow_return_type = toArrowType(return_type)
+    if isinstance(return_type, StructType):
+        arrow_return_types = list(toArrowType(field.dataType) for field in return_type)
 
-    def verify_result_length(*a):
-        result = f(*a)
-        if not hasattr(result, "__len__"):
-            raise TypeError("Return type of pandas_udf should be a Pandas.Series")
-        if len(result) != len(a[0]):
-            raise RuntimeError("Result vector from pandas_udf was not the required length: "
-                               "expected %d, got %d" % (len(a[0]), len(result)))
-        return result
-    return lambda *a: (verify_result_length(*a), arrow_return_type)
+        def fn(*a):
+            import pandas as pd
+            out = f(*a)
+            assert isinstance(out, pd.DataFrame), 'Must return a pd.DataFrame'
+            assert len(out.columns) == len(arrow_return_types), \
+                'Columns of pd.DataFrame don\'t match return schema'
+
+            return list((out[out.columns[i]], arrow_return_types[i]) for i in range(len(arrow_return_types)))
+        return fn
+
+    else:
+        arrow_return_type = toArrowType(return_type)
+
+        def verify_result_length(*a):
+            result = f(*a)
+            if not hasattr(result, "__len__"):
+                raise TypeError("Return type of pandas_udf should be a Pandas.Series")
+            if len(result) != len(a[0]):
+                raise RuntimeError("Result vector from pandas_udf was not the required length: " \
+                                   "expected %d, got %d" % (len(a[0]), len(result)))
+            return result
+
+        return lambda *a: (verify_result_length(*a), arrow_return_type)
 
 
 def read_single_udf(pickleSer, infile, eval_type):
     num_arg = read_int(infile)
     arg_offsets = [read_int(infile) for i in range(num_arg)]
+    print("arg_offsets: ", arg_offsets)
     row_func = None
     for i in range(read_int(infile)):
         f, return_type = read_command(pickleSer, infile)
@@ -138,6 +154,7 @@ def read_udfs(pickleSer, infile, eval_type):
     # In the special case of a single UDF this will return a single result rather
     # than a tuple of results; this is the format that the JVM side expects.
     mapper_str = "lambda a: (%s)" % (", ".join(call_udf))
+    print("mapper_str", mapper_str)
     mapper = eval(mapper_str, udfs)
 
     func = lambda _, it: map(mapper, it)

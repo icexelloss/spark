@@ -55,10 +55,9 @@ class GroupedData(object):
     .. versionadded:: 1.3
     """
 
-    def __init__(self, jgd, sql_ctx, grouping_cols=None):
+    def __init__(self, jgd, sql_ctx):
         self._jgd = jgd
         self.sql_ctx = sql_ctx
-        self.grouping_cols = grouping_cols
 
     @ignore_unicode_prefix
     @since(1.3)
@@ -196,7 +195,7 @@ class GroupedData(object):
             jgd = self._jgd.pivot(pivot_col, values)
         return GroupedData(jgd, self.sql_ctx)
 
-    def apply(self, udf_column):
+    def apply(self, apply_pandas_udf):
         """
         Maps each group of the current [[DataFrame]] using a user defined function and returns the result as a :class:`DataFrame`.
 
@@ -205,41 +204,46 @@ class GroupedData(object):
         The schema of the returned :class:`pandas.DataFrame`
 
         """
-        udf_obj = udf_column.udf_obj
-        func = udf_obj.func
-        grouping_cols = self.grouping_cols
+        #udf_obj = udf_column.udf()
+        #func = udf_obj.func
+        #returnType = udf_obj.returnType
 
-        def new_func(pdf):
+        #print(udf_column)
+        #print(udf_obj)
+        #print(returnType)
+
+        #if callable(udf_column):
+        #    new_udf_column = pandas_udf(new_func, udf_obj._returnType,
+        #                                udf_obj._add_schema, udf_obj._group_add_schema)
+        #    udf_column = new_udf_column
+        #    udf_obj = udf_column.udf_obj
+        #    df = DataFrame(self._jgd.df(), self.sql_ctx)
+        #    if (udf_obj._add_schema):
+        #        udf_obj._returnType = StructType(df.schema.fields + udf_obj._add_schema.fields)
+        #    elif (udf_obj._group_add_schema):
+        #        udf_obj._returnType = \
+        #            StructType(df.select(*self.grouping_cols).schema.fields + udf_obj._group_add_schema.fields)
+        #    udf_column = udf_column(df)
+
+
+        df = DataFrame(self._jgd.df(), self.sql_ctx)
+        func = apply_pandas_udf.func
+        returnType = apply_pandas_udf.returnType
+
+        # The python executors expects the function to take a list of pd.Series as input
+        # So we to create a wrapper function that turns that to a pd.DataFrame before passing down to the user function
+        columns = df.columns
+        def wrapped(*cols):
             import pandas as pd
-            out = func(pdf)
-            if isinstance(out, pd.DataFrame):
-                out_df = out
-            elif isinstance(out, pd.Series):
-                out_df = pdf[grouping_cols][:1]
-                # There should be only a few items in the Series
-                for i in range(len(out)):
-                    out_df['_{}'.format(i)] = out[i]
-            else:
-                out_df = pdf[grouping_cols][:1]
-                out_df['_1'] = out
-            #else:
-            #    raise ValueError("Unsupported returned value from udf: {}. "
-            #                     "Must be pd.DataFrame or pd.Series".format(out))
-            return out_df
 
-        if callable(udf_column):
-            new_udf_column = pandas_udf(new_func, udf_obj._returnType,
-                                        udf_obj._add_schema, udf_obj._group_add_schema)
-            udf_column = new_udf_column
-            udf_obj = udf_column.udf_obj
-            df = DataFrame(self._jgd.df(), self.sql_ctx)
-            if (udf_obj._add_schema):
-                udf_obj._returnType = StructType(df.schema.fields + udf_obj._add_schema.fields)
-            elif (udf_obj._group_add_schema):
-                udf_obj._returnType = \
-                    StructType(df.select(*self.grouping_cols).schema.fields + udf_obj._group_add_schema.fields)
+            print(pd.concat(cols, axis=1, keys=columns))
 
-            udf_column = udf_column(df)
+            #return func(*cols)
+            return func(pd.concat(cols, axis=1, keys=columns))
+
+        wrapped_pandas_udf = pandas_udf(wrapped, returnType)
+        udf_column = wrapped_pandas_udf(*[df[col] for col in df.columns])
+
         jdf = self._jgd.flatMapGroupsInPandas(udf_column._jc.expr())
         return DataFrame(jdf, self.sql_ctx)
 

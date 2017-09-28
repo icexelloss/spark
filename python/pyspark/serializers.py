@@ -262,7 +262,10 @@ class ArrowStreamPandasSerializer(Serializer):
         reader = pa.open_stream(stream)
         for batch in reader:
             table = pa.Table.from_batches([batch])
-            yield [c.to_pandas() for c in table.itercolumns()]
+            print(table)
+            ret = [c.to_pandas() for c in table.itercolumns()]
+            print("ret: ", ret)
+            yield ret
 
     def __repr__(self):
         return "ArrowStreamPandasSerializer"

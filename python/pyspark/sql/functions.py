@@ -2077,6 +2077,20 @@ def _create_schema(schema):
 def _is_schema(schema):
     return isinstance(schema, (str, DataType, collections.abc.Sequence, tuple))
 
+
+class UserDefinedFunctionColumn(Column):
+    """
+    A PySpark Column object created from udf or pandas_udf
+
+    This class stores a reference to the UserDefinedFunction object
+    """
+    def __init__(self, jc, udf):
+        super().__init__(jc)
+        self._udf = udf
+
+    def udf(self):
+        return self._udf
+
 class UserDefinedFunction(object):
     """
     User defined function in Python
@@ -2182,18 +2196,17 @@ class UserDefinedFunction(object):
         wrapper.__module__ = (self.func.__module__ if hasattr(self.func, '__module__')
                               else self.func.__class__.__module__)
         wrapper.func = self.func
-        if self._returnType:
-            wrapper.returnType = self.returnType
+        wrapper.returnType = self.returnType
 
         return wrapper
 
 def _create_udf(f, returnType, vectorized):
 
     def _udf(f, returnType=StringType(), vectorized=vectorized):
-        if vectorized:
-            import inspect
-            if len(inspect.getargspec(f).args) == 0:
-                raise NotImplementedError("0-parameter pandas_udfs are not currently supported")
+        #if vectorized:
+        #    import inspect
+        #    if len(inspect.getargspec(f).args) == 0:
+        #        raise NotImplementedError("0-parameter pandas_udfs are not currently supported")
         udf_obj = UserDefinedFunction(f, returnType, vectorized=vectorized)
         return udf_obj._wrapped()
 

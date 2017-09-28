@@ -1227,7 +1227,7 @@ class DataFrame(object):
         """
         jgd = self._jdf.groupBy(self._jcols(*cols))
         from pyspark.sql.group import GroupedData
-        return GroupedData(jgd, self.sql_ctx, list(cols))
+        return GroupedData(jgd, self.sql_ctx)
 
     @since(1.4)
     def rollup(self, *cols):
@@ -1794,6 +1794,7 @@ class DataFrame(object):
         [Row(age=2, name=u'Alice', age2=4), Row(age=5, name=u'Bob', age2=7)]
         """
         assert isinstance(col, Column), "col should be Column"
+
         return DataFrame(self._jdf.withColumn(colName, col._jc), self.sql_ctx)
 
     @ignore_unicode_prefix
