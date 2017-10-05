@@ -74,47 +74,22 @@ def wrap_udf(f, return_type):
 
 
 def wrap_pandas_udf(f, return_type):
-    # If the return_type is a StructType, it indicates this is a groupby apply udf,
-    # otherwise, it's a vectorized column udf.
-    # We can distinguish these two by return type because in groupby apply, we always specify
-    # returnType as a StructType, and in vectorized column udf, StructType is not supported.
-    #
-    # TODO: This logic is a bit hacky and might not work for future pandas udfs. Need refactoring.
     if isinstance(return_type, StructType):
         arrow_return_types = [to_arrow_type(field.dataType) for field in return_type]
-
-        # Verify the return type and number of columns in result
-        def verify_result_type(*a):
+        def attach_datatype(*a):
             import pandas as pd
             result = f(*a)
-            if not isinstance(result, pd.DataFrame):
-                raise TypeError("Return type of the user-defined function should be a "
-                                "Pandas.DataFrame")
-            if not len(result.columns) == len(arrow_return_types):
-                raise RuntimeError(
-                    "Number of columns of the returned Pandas.DataFrame " \
-                    "doesn't match specified schema. " \
-                    "Expected: {} Actual: {}".format(len(arrow_return_types), len(result.columns)))
-
             return [(result[result.columns[i]], arrow_return_types[i])
                     for i in range(len(arrow_return_types))]
 
-        return verify_result_type
-
+        return attach_datatype
     else:
         arrow_return_type = to_arrow_type(return_type)
-
-        def verify_result_length(*a):
+        def attach_datatype(*a):
             result = f(*a)
-            if not hasattr(result, "__len__"):
-                raise TypeError("Return type of the user-defined functon should be a "
-                                "Pandas.Series")
-            if len(result) != len(a[0]):
-                raise RuntimeError("Result vector from pandas_udf was not the required length: "
-                                   "expected %d, got %d" % (len(a[0]), len(result)))
-            return result
+            return (result, arrow_return_type)
 
-        return lambda *a: (verify_result_length(*a), arrow_return_type)
+        return attach_datatype
 
 
 def read_single_udf(pickleSer, infile, eval_type):
