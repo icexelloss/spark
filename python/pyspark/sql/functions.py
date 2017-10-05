@@ -2030,9 +2030,10 @@ def map_values(col):
 
 
 # ---------------------------- User Defined Function ----------------------------------
-
-def _wrap_function(sc, func, returnType):
+def _wrap_function(sc, user_func, wrap_user_func, returnType):
+    func = wrap_user_func(user_func, returnType) if wrap_user_func else user_func
     command = (func, returnType)
+
     pickled_command, broadcast_vars, env, includes = _prepare_for_python_RDD(sc, command)
     return sc._jvm.PythonFunction(bytearray(pickled_command), env, includes, sc.pythonExec,
                                   sc.pythonVer, broadcast_vars, sc._javaAccumulator)
@@ -2044,7 +2045,7 @@ class UserDefinedFunction(object):
 
     .. versionadded:: 1.3
     """
-    def __init__(self, func, returnType, name=None, vectorized=False):
+    def __init__(self, func, returnType, name=None, vectorized=False, wrap_user_func=None):
         if not callable(func):
             raise TypeError(
                 "Not a function or callable (__call__ is not defined): "
@@ -2059,6 +2060,13 @@ class UserDefinedFunction(object):
             func.__name__ if hasattr(func, '__name__')
             else func.__class__.__name__)
         self.vectorized = vectorized
+        # This is an optional field that allows wrapping of the user function and adapt
+        # its input/output to the format that serializer is expecting.
+        # This is mainly used for vectorized udf to adapt the serializer output
+        # to the user-defined function input, e.g, list(pandas.Series) -> pd.DataFrame
+        # This also allows output verification on user output before it gets passed
+        # to serializer, e.g., check the output has the same length as input
+        self.wrap_user_func = wrap_user_func
 
     @property
     def returnType(self):
@@ -2087,7 +2095,7 @@ class UserDefinedFunction(object):
         spark = SparkSession.builder.getOrCreate()
         sc = spark.sparkContext
 
-        wrapped_func = _wrap_function(sc, self.func, self.returnType)
+        wrapped_func = _wrap_function(sc, self.func, self.wrap_user_func, self.returnType)
         jdt = spark._jsparkSession.parseDataType(self.returnType.json())
         judf = sc._jvm.org.apache.spark.sql.execution.python.UserDefinedPythonFunction(
             self._name, wrapped_func, jdt, self.vectorized)
@@ -2100,7 +2108,10 @@ class UserDefinedFunction(object):
 
     def _wrapped(self):
         """
-        Wrap this udf with a function and attach docstring from func
+        Wrap this udf with a function and attach docstring from func.
+
+        The function returned should have the same public fields as this udf and
+        have a udf field that points back to this udf object.
         """
 
         # It is possible for a callable instance without __name__ attribute or/and
@@ -2115,6 +2126,7 @@ class UserDefinedFunction(object):
         def wrapper(*args):
             return self(*args)
 
+
         wrapper.__name__ = self._name
         wrapper.__module__ = (self.func.__module__ if hasattr(self.func, '__module__')
                               else self.func.__class__.__module__)
@@ -2122,9 +2134,40 @@ class UserDefinedFunction(object):
         wrapper.func = self.func
         wrapper.returnType = self.returnType
         wrapper.vectorized = self.vectorized
+        wrapper.wrap_user_func = self.wrap_user_func
+
+        wrapper.udf = self
 
         return wrapper
 
+
+class VectorizedUserDefinedFunction(UserDefinedFunction):
+
+    def _default_wrap_user_func(func, returnType):
+        """Default wrapper for vectorized user-defined function.
+        """
+        def verify_result_length(*a):
+            result = func(*a)
+            if not hasattr(result, "__len__"):
+                raise TypeError("Return type of pandas_udf should be a Pandas.Series")
+            if len(result) != len(a[0]):
+                raise RuntimeError("Result vector from pandas_udf was not the required length: "
+                                   "expected %d, got %d" % (len(a[0]), len(result)))
+            return result
+
+        return verify_result_length
+
+    def __init__(self, func, returnType, name=None, wrap_user_func=_default_wrap_user_func):
+        super(VectorizedUserDefinedFunction, self).__init__(
+            func=func, returnType=returnType, name=name,
+            vectorized=True, wrap_user_func=wrap_user_func)
+
+    def with_wrap_user_func(self, new_wrap_user_func):
+        """Change the wrap_user_func and returns a new object
+        """
+        return VectorizedUserDefinedFunction(
+            self.func, returnType=self.returnType, name=self._name,
+            wrap_user_func=new_wrap_user_func)
 
 def _create_udf(f, returnType, vectorized):
 
@@ -2137,7 +2180,10 @@ def _create_udf(f, returnType, vectorized):
                     "0-arg pandas_udfs are not supported. "
                     "Instead, create a 1-arg pandas_udf and ignore the arg in your function."
                 )
-        udf_obj = UserDefinedFunction(f, returnType, vectorized=vectorized)
+            udf_obj = VectorizedUserDefinedFunction(f, returnType)
+        else:
+            udf_obj = UserDefinedFunction(f, returnType)
+
         return udf_obj._wrapped()
 
     # decorator @udf, @udf(), @udf(dataType()), or similar with @pandas_udf

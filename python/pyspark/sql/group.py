@@ -241,19 +241,27 @@ class GroupedData(object):
 
         df = self._df
         func = udf.func
-        returnType = udf.returnType
-
-        # The python executors expects the function to take a list of pd.Series as input
-        # So we to create a wrapper function that turns that to a pd.DataFrame before passing
-        # down to the user function
+        return_type = udf.returnType
         columns = df.columns
 
-        def wrapped(*cols):
-            import pandas as pd
-            return func(pd.concat(cols, axis=1, keys=columns))
+        def wrap_user_func(f, return_type):
+            # Verify the return type and number of columns in result
+            def verify_result_type(*series):
+                import pandas as pd
+                result = f(pd.concat(series, axis=1, keys=columns))
+                if not isinstance(result, pd.DataFrame):
+                    raise TypeError("Return type of pandas_udf should be a Pandas.DataFrame")
+                if not len(result.columns) == len(return_type):
+                    raise RuntimeError(
+                        "Number of columns of the returned Pandas.DataFrame " \
+                        "doesn't match specified schema. " \
+                        "Expected: {} Actual: {}".format(len(return_type), len(result.columns)))
+                return result
 
-        wrapped_udf_obj = pandas_udf(wrapped, returnType)
-        udf_column = wrapped_udf_obj(*[df[col] for col in df.columns])
+            return verify_result_type
+
+        wrapped_udf = udf.udf.with_wrap_user_func(wrap_user_func)
+        udf_column = wrapped_udf(*[df[col] for col in columns])
         jdf = self._jgd.flatMapGroupsInPandas(udf_column._jc.expr())
         return DataFrame(jdf, self.sql_ctx)
 
