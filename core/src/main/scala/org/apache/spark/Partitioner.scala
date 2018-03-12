@@ -156,7 +156,7 @@ class RangePartitioner[K : Ordering : ClassTag, V](
   private var ordering = implicitly[Ordering[K]]
 
   // An array of upper bounds for the first (partitions - 1) partitions
-  private var rangeBounds: Array[K] = {
+  var rangeBounds: Array[K] = {
     if (partitions <= 1) {
       Array.empty
     } else {
