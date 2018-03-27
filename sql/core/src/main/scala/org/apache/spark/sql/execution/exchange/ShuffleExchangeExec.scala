@@ -26,7 +26,7 @@ import org.apache.spark.serializer.Serializer
 import org.apache.spark.shuffle.sort.SortShuffleManager
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.errors._
-import org.apache.spark.sql.catalyst.expressions.{Attribute, UnsafeProjection, UnsafeRow}
+import org.apache.spark.sql.catalyst.expressions.{Ascending, Attribute, SortOrder, UnsafeProjection, UnsafeRow}
 import org.apache.spark.sql.catalyst.expressions.codegen.LazilyGeneratedOrdering
 import org.apache.spark.sql.catalyst.plans.physical._
 import org.apache.spark.sql.execution._
@@ -62,6 +62,13 @@ case class ShuffleExchangeExec(
   }
 
   override def outputPartitioning: Partitioning = newPartitioning
+
+  // TODO: Verify this
+  /* override def outputOrdering: Seq[SortOrder] = newPartitioning match {
+    case OverlappedRangePartitioning(key, _, _, _) =>
+      Seq(SortOrder(key, Ascending))
+    case _ => Nil
+  } */
 
   private val serializer: Serializer =
     new UnsafeRowSerializer(child.output.size, longMetric("dataSize"))
@@ -205,6 +212,7 @@ object ShuffleExchangeExec {
       outputAttributes: Seq[Attribute],
       newPartitioning: Partitioning,
       serializer: Serializer): ShuffleDependency[Int, InternalRow, InternalRow] = {
+
     val part: Partitioner = newPartitioning match {
       case RoundRobinPartitioning(numPartitions) => new HashPartitioner(numPartitions)
       case HashPartitioning(_, n) =>
@@ -232,6 +240,23 @@ object ShuffleExchangeExec {
           override def numPartitions: Int = 1
           override def getPartition(key: Any): Int = 0
         }
+      case partitioning @ DelayedOverlappedRangePartitioning(_, _, n, _, core) if core =>
+        val rddForSampling = rdd.mapPartitionsInternal { iter =>
+          val mutablePair = new MutablePair[InternalRow, Null]()
+          iter.map(row => mutablePair.update(row.copy(), null))
+        }
+        val sortingExpressions = Seq(SortOrder(partitioning.key, Ascending))
+        implicit val ordering = new LazilyGeneratedOrdering(sortingExpressions, outputAttributes)
+        new RangePartitioner(
+          n,
+          rddForSampling,
+          ascending = true,
+          samplePointsPerPartitionHint = SQLConf.get.rangeExchangeSampleSizePerPartition)
+      case DelayedOverlappedRangePartitioning(_, _, n, _, core) if !core =>
+        new Partitioner {
+          override def numPartitions: Int = n
+          override def getPartition(key: Any): Int = key.asInstanceOf[Int]
+        }
       case _ => sys.error(s"Exchange not implemented for $newPartitioning")
       // TODO: Handle BroadcastPartitioning.
     }
@@ -248,6 +273,7 @@ object ShuffleExchangeExec {
         val projection = UnsafeProjection.create(h.partitionIdExpression :: Nil, outputAttributes)
         row => projection(row).getInt(0)
       case RangePartitioning(_, _) | SinglePartition => identity
+      case _: DelayedOverlappedRangePartitioning => identity
       case _ => sys.error(s"Exchange not implemented for $newPartitioning")
     }
 
@@ -303,11 +329,31 @@ object ShuffleExchangeExec {
           val getPartitionKey = getPartitionKeyExtractor()
           iter.map { row => (part.getPartition(getPartitionKey(row)), row.copy()) }
         }
-      } else {
-        newRdd.mapPartitionsInternal { iter =>
-          val getPartitionKey = getPartitionKeyExtractor()
-          val mutablePair = new MutablePair[Int, InternalRow]()
-          iter.map { row => mutablePair.update(part.getPartition(getPartitionKey(row)), row) }
+      }
+      else {
+        newPartitioning match {
+          case partitioning: DelayedOverlappedRangePartitioning if partitioning.core =>
+
+            val p = part.asInstanceOf[RangePartitioner[InternalRow, Null]]
+            val proj = UnsafeProjection.create(Seq(partitioning.key), outputAttributes)
+            val bounds = p.rangeBounds.map{ row => proj(row).getLong(0)}
+            partitioning.realizeDelayedRange(bounds)
+
+            newRdd.mapPartitionsInternal { iter =>
+              val getPartitionKey = getPartitionKeyExtractor()
+              val mutablePair = new MutablePair[Int, InternalRow]()
+              iter.map { row => mutablePair.update(part.getPartition(getPartitionKey(row)), row) }
+            }
+
+          case partitioning: DelayedOverlappedRangePartitioning if !partitioning.core =>
+            newRdd.mapPartitionsInternal(iter =>
+              partitioning.withPartitionIds(iter, partitioning.key, outputAttributes))
+          case _ =>
+            newRdd.mapPartitionsInternal { iter =>
+              val getPartitionKey = getPartitionKeyExtractor()
+              val mutablePair = new MutablePair[Int, InternalRow]()
+              iter.map { row => mutablePair.update(part.getPartition(getPartitionKey(row)), row) }
+            }
         }
       }
     }

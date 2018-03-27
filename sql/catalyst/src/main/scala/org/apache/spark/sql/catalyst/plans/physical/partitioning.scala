@@ -17,8 +17,15 @@
 
 package org.apache.spark.sql.catalyst.plans.physical
 
+import scala.collection.JavaConverters._
+import scala.collection.mutable.ArrayBuffer
+
+import com.google.common.collect.{Range => GRange, RangeMap, TreeRangeMap}
+
+import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.types.{DataType, IntegerType}
+
 
 /**
  * Specifies how tuples that share common expressions will be distributed when a query is executed
@@ -149,6 +156,42 @@ case class BroadcastDistribution(mode: BroadcastMode) extends Distribution {
 }
 
 /**
+ * A object that holds distribution ranges to be shared cross different nodes.
+ *
+ * This is not thread safe.
+ */
+class DelayedRange(var range: IndexedSeq[GRange[java.lang.Long]] = null) extends Serializable {
+
+  def realized(): Boolean = {
+    range != null
+  }
+
+  def setRange(range: IndexedSeq[GRange[java.lang.Long]]): Unit = {
+      this.range = range
+  }
+
+  def getRange(): IndexedSeq[GRange[java.lang.Long]] = {
+    if (range == null) {
+      throw new Exception("DelayedRange is not realized")
+    } else {
+      range
+    }
+  }
+}
+
+case class DelayedOverlappedRangeDistribution(
+    key: Expression,
+    overlap: Long,
+    core: Boolean // Decides whether it is range-defining
+) extends Distribution {
+  override def requiredNumPartitions: Option[Int] = None
+
+  override def createPartitioning(numPartitions: Int): Partitioning = {
+    DelayedOverlappedRangePartitioning(key, null, numPartitions, overlap, core)
+  }
+}
+
+/**
  * Describes how an operator's output is split across partitions. It has 2 major properties:
  *   1. number of partitions.
  *   2. if it can satisfy a given distribution.
@@ -257,6 +300,95 @@ case class RangePartitioning(ordering: Seq[SortOrder], numPartitions: Int)
             (requiredNumPartitions.isEmpty || requiredNumPartitions.get == numPartitions)
         case _ => false
       }
+    }
+  }
+}
+
+case class DelayedOverlappedRangePartitioning(
+    key: Expression,
+    var delayedRange: DelayedRange,
+    numPartitions: Int,
+    overlap: Long,
+    core: Boolean
+) extends Expression with Partitioning with Unevaluable {
+  override def children: Seq[Expression] = Seq(key)
+  override def nullable: Boolean = false
+  override def dataType: DataType = IntegerType
+
+  def setDelayedRange(delayedRange: DelayedRange): Unit = this.delayedRange = delayedRange
+
+  override def satisfies(required: Distribution): Boolean = {
+    super.satisfies(required) || {
+      required match {
+        case DelayedOverlappedRangeDistribution(requiredKey, requiredOverlap, _) =>
+          key.semanticEquals(requiredKey) && overlap == requiredOverlap
+        case OrderedDistribution(ordering) =>
+          (ordering.length == 1) &&
+            ordering.head.child.semanticEquals(key) &&
+            ordering.head.direction == Ascending &&
+            overlap == 0
+        case ClusteredDistribution(clustering, None) =>
+          (clustering.length == 1) && clustering.head.semanticEquals(key) && overlap == 0
+        case _ => false
+      }
+    }
+  }
+
+  def realizeDelayedRange(bounds: Array[Long]): Unit = {
+    if (delayedRange.realized()) {
+      throw new Exception("ranges are realized already")
+    } else {
+      val ranges: IndexedSeq[GRange[java.lang.Long]] = {
+        (Seq(Long.MinValue) ++ bounds).zip(bounds ++ Seq(Long.MaxValue)).map {
+          case (lower, upper) => GRange.closedOpen(Long.box(lower), Long.box(upper))
+        }.toIndexedSeq
+      }
+
+      delayedRange.setRange(ranges)
+    }
+  }
+
+  def withPartitionIds(
+      iter: Iterator[InternalRow],
+      expr: Expression,
+      output: Seq[Attribute]): Iterator[Product2[Int, InternalRow]] = {
+    val expandedRanges = delayedRange.getRange().map{
+      case range => GRange.closedOpen(
+        Long.box(
+          if (range.lowerEndpoint() == Long.MinValue) {
+            Long.MinValue
+          }
+          else {
+            range.lowerEndpoint() - overlap
+          }
+        ),
+        range.upperEndpoint()
+      )
+    }
+
+    val keyProj = UnsafeProjection.create(Seq(expr), output)
+    val proj = UnsafeProjection.create(output, output)
+
+    var currentStartIndex = 0
+
+    iter.flatMap { row =>
+      val key = keyProj(row).getLong(0)
+
+      // Update
+      while(currentStartIndex < expandedRanges.length &&
+        !expandedRanges(currentStartIndex).contains(key)) {
+        currentStartIndex += 1
+      }
+
+      var i = currentStartIndex
+      val rows = new ArrayBuffer[Product2[Int, UnsafeRow]]()
+
+      while(i < expandedRanges.length && expandedRanges(i).contains(key)) {
+        rows.append((i, proj(row)))
+        i += 1
+      }
+
+      rows
     }
   }
 }
