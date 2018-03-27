@@ -18,12 +18,14 @@
 package org.apache.spark.sql
 
 import org.apache.spark.annotation.{Experimental, InterfaceStability}
+import org.apache.spark.sql.catalyst.expressions.{AttributeReference, Overlap}
 import org.apache.spark.sql.catalyst.plans.logical.{AsofJoin, LogicalPlan}
 import org.apache.spark.sql.catalyst.plans.physical.{DelayedOverlappedRangePartitioning, DelayedRange}
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.execution.{AsofJoinExec, BroadcastAsofJoinExec, SparkPlan}
+import org.apache.spark.sql.execution.{AsofJoinExec, BroadcastAsofJoinExec, GenerateExec, SparkPlan}
 import org.apache.spark.sql.execution.joins.{BuildLeft, BuildRight}
 import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.IntegerType
 
 // These are codes that can be added via experimental methods
 // The actual rules don't need to be in this file. Keep them here for now
@@ -51,10 +53,20 @@ object AsofJoinStrategy extends Strategy {
         leftBy, rightBy, tolerance, planLater(left), planLater(right)) :: Nil
 
     case AsofJoin(left, right, leftOn, rightOn, leftBy, rightBy, tolerance) =>
+
+      val overlap = Overlap(rightOn, tolerance, null)
+      val rightSp = planLater(right)
+
+      val generatorOutput = Seq(AttributeReference("overlap", IntegerType)())
+
       AsofJoinExec(
-          leftOn,
-          rightOn,
-          leftBy, rightBy, tolerance, planLater(left), planLater(right)) :: Nil
+        leftOn,
+        rightOn,
+        leftBy,
+        rightBy,
+        tolerance,
+        planLater(left),
+        GenerateExec(overlap, rightSp.output, true, generatorOutput, planLater(right))) :: Nil
 
     case _ => Nil
   }
@@ -84,9 +96,25 @@ object EnsureRange extends Rule[SparkPlan] {
         val delayedRange = new DelayedRange()
         leftPartitioning.setDelayedRange(delayedRange)
         rightPartitioning.setDelayedRange(delayedRange)
+
+        val generator = asof.right.collectFirst {
+          case g: GenerateExec => g
+        }.get.generator.asInstanceOf[Overlap]
+
+        generator.setRange(delayedRange)
+
       } else {
-        rightPartitioning.setDelayedRange(leftPartitioning.delayedRange)
+        val delayedRange = leftPartitioning.delayedRange
+        rightPartitioning.setDelayedRange(delayedRange)
+
+        val generator = asof.right.collectFirst {
+          case g: GenerateExec => g
+        }.get.generator.asInstanceOf[Overlap]
+
+        generator.setRange(delayedRange)
       }
+
+
     asof
   }
 

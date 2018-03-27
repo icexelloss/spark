@@ -160,8 +160,7 @@ case class BroadcastDistribution(mode: BroadcastMode) extends Distribution {
  *
  * This is not thread safe.
  */
-class DelayedRange extends Serializable {
-  var range: IndexedSeq[GRange[java.lang.Long]] = _
+class DelayedRange(var range: IndexedSeq[GRange[java.lang.Long]] = null) extends Serializable {
 
   def realized(): Boolean = {
     range != null

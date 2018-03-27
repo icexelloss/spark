@@ -48,7 +48,7 @@ case class AsofJoinExec(
   override val requiredChildDistribution: Seq[Distribution] = {
     Seq(
       DelayedOverlappedRangeDistribution(leftOnExpr, 0, true),
-      DelayedOverlappedRangeDistribution(rightOnExpr, tolerance, false)
+      DelayedOverlappedRangeDistribution(rightOnExpr, 0, false)
     )
   }
 

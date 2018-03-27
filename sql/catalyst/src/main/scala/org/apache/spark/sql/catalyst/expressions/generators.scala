@@ -18,13 +18,18 @@
 package org.apache.spark.sql.catalyst.expressions
 
 import scala.collection.mutable
+import scala.collection.mutable.ArrayBuffer
+
+import com.google.common.collect.{Range => GRange, RangeMap, TreeRangeMap}
 
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodegenFallback, ExprCode}
+import org.apache.spark.sql.catalyst.plans.physical.DelayedRange
 import org.apache.spark.sql.catalyst.util.{ArrayData, MapData}
 import org.apache.spark.sql.types._
+
 
 /**
  * An expression that produces zero or more rows given a single input row.
@@ -399,6 +404,76 @@ case class Inline(child: Expression) extends UnaryExpression with CollectionGene
       for (i <- 0 until inputArray.numElements())
         yield inputArray.getStruct(i, numFields)
     }
+  }
+
+  override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
+    child.genCode(ctx)
+  }
+}
+
+case class Overlap(child: Expression, overlap: Long, var range: DelayedRange)
+  extends UnaryExpression with Generator {
+
+  println("Creating Overlap")
+  println(range)
+  if (range == null) {
+    println("DelayedRange is null")
+  } else {
+    println("DelayedRange: " + range.getRange())
+  }
+
+  lazy val overlapRanges: IndexedSeq[GRange[java.lang.Long]] = range.getRange().map{
+    case range => GRange.closedOpen(
+      Long.box(
+        if (range.lowerEndpoint() == Long.MinValue) {
+          Long.MinValue
+        }
+        else {
+          range.lowerEndpoint() - overlap
+        }
+      ),
+      range.upperEndpoint()
+    )
+  }
+
+  private var currentStartIndex = 0
+
+  def setRange(range: DelayedRange): Unit = {
+    println("setRange")
+    this.range = range
+    println("range: " + range)
+  }
+
+  override def elementSchema: StructType = StructType(Seq(StructField("overlap", IntegerType)))
+
+  override def checkInputDataTypes: TypeCheckResult =
+    TypeCheckResult.TypeCheckSuccess
+
+  override def eval(input: InternalRow): Traversable[InternalRow] = {
+    // println("DelayedRange:" + range)
+
+    val value = child.eval(input).asInstanceOf[Long]
+
+    // Update currentStartIndex
+    while(currentStartIndex < overlapRanges.length &&
+      !overlapRanges(currentStartIndex).contains(value)) {
+      currentStartIndex += 1
+    }
+
+    var i = currentStartIndex
+    val rows = new ArrayBuffer[InternalRow]()
+
+    while(i < overlapRanges.length && overlapRanges(i).contains(value)) {
+      // 0 for overlap, 1 for core
+      if (range.getRange()(i).contains(value)) {
+        rows.append(InternalRow(1))
+      } else {
+        rows.append(InternalRow(0))
+      }
+      i += 1
+    }
+
+    rows
   }
 
   override protected def doGenCode(ctx: CodegenContext, ev: ExprCode): ExprCode = {
