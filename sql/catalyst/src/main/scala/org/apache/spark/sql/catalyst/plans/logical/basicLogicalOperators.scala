@@ -275,6 +275,19 @@ case class Union(children: Seq[LogicalPlan]) extends LogicalPlan {
   }
 }
 
+case class AsofJoin(
+    left: LogicalPlan,
+    right: LogicalPlan,
+    leftOn: Expression,
+    rightOn: Expression,
+    leftBy: Seq[Expression],
+    rightBy: Seq[Expression],
+    tolerance: Long)
+  extends BinaryNode {
+
+  override def output: Seq[Attribute] = left.output ++ right.output.map(_.withNullability(true))
+}
+
 case class Join(
     left: LogicalPlan,
     right: LogicalPlan,

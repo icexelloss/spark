@@ -18,6 +18,7 @@
 package org.apache.spark.sql
 
 import scala.collection.JavaConverters._
+import scala.collection.mutable.ArrayBuffer
 import scala.language.implicitConversions
 import scala.reflect.runtime.universe.{typeTag, TypeTag}
 import scala.util.Try
@@ -30,8 +31,8 @@ import org.apache.spark.sql.catalyst.analysis.{Star, UnresolvedFunction}
 import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate._
-import org.apache.spark.sql.catalyst.plans.logical.{HintInfo, ResolvedHint}
-import org.apache.spark.sql.execution.SparkSqlParser
+import org.apache.spark.sql.catalyst.plans.logical.{AsofJoin, HintInfo, ResolvedHint}
+import org.apache.spark.sql.execution.{LogicalRDD, SparkSqlParser}
 import org.apache.spark.sql.expressions.UserDefinedFunction
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
@@ -3740,5 +3741,36 @@ object functions {
   @scala.annotation.varargs
   def callUDF(udfName: String, cols: Column*): Column = withExpr {
     UnresolvedFunction(udfName, cols.map(_.expr), isDistinct = false)
+  }
+
+  def asofJoin(
+      left: DataFrame,
+      right: DataFrame,
+      on: String,
+      by: String,
+      tolerance: Long
+  ): DataFrame = {
+    val leftOn = left.logicalPlan.output.find(_.name == on).get
+    val rightOn = right.logicalPlan.output.find(_.name == on).get
+    val leftBy: Seq[Expression] = if (by != null) {
+      Seq(left.logicalPlan.output.find(_.name == by).get)
+    } else {
+      Seq.empty
+    }
+    val rightBy: Seq[Expression] = if (by != null) {
+      Seq(right.logicalPlan.output.find(_.name == by).get)
+    } else {
+      Seq.empty
+    }
+    Dataset.ofRows(
+      left.sparkSession,
+      AsofJoin(
+      left.logicalPlan,
+      right.logicalPlan,
+      leftOn,
+      rightOn,
+      leftBy,
+      rightBy,
+      tolerance))
   }
 }
