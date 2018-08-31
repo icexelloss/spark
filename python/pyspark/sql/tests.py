@@ -6484,8 +6484,6 @@ class WindowPandasUDFTests(ReusedSQLTestCase):
 
         df = self.data
         w = self.unbounded_window
-        ow = self.ordered_window
-        mean_udf = self.pandas_agg_mean_udf
 
         with QuietTest(self.sc):
             with self.assertRaisesRegexp(
@@ -6493,12 +6491,6 @@ class WindowPandasUDFTests(ReusedSQLTestCase):
                     '.*not supported within a window function'):
                 foo_udf = pandas_udf(lambda x: x, 'v double', PandasUDFType.GROUPED_MAP)
                 df.withColumn('v2', foo_udf(df['v']).over(w))
-
-        with QuietTest(self.sc):
-            with self.assertRaisesRegexp(
-                    AnalysisException,
-                    '.*Only unbounded window frame is supported.*'):
-                df.withColumn('mean_v', mean_udf(df['v']).over(ow))
 
     def test_bounded_simple(self):
         from pyspark.sql.functions import mean, max, min
