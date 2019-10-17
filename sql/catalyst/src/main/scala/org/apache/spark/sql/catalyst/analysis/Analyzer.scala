@@ -184,7 +184,7 @@ class Analyzer(
       ResolveWindowOrder ::
       ResolveWindowFrame ::
       ResolveNaturalAndUsingJoin ::
-      ResolveMergeAsof ::
+      ResolveAsofJoin ::
       ResolveOutputRelation ::
       ExtractWindowExpressions ::
       GlobalAggregates ::
@@ -2287,9 +2287,9 @@ class Analyzer(
     }
   }
 
-  object ResolveMergeAsof extends Rule[LogicalPlan] {
+  object ResolveAsofJoin extends Rule[LogicalPlan] {
     override def apply(plan: LogicalPlan): LogicalPlan = plan match {
-      case m @ MergeAsOf(left, right, leftOn, rightOn, leftBy, rightBy, tolerance, exact)
+      case m @ AsofJoin(left, right, leftOn, rightOn, leftBy, rightBy, tolerance, exact)
         // Removed m.duplicateResolved to allow self joins but should allow self joins regardless
         if left.resolved && right.resolved => {
           val lUniqueOutput = left.output.filterNot(att => leftBy == att || leftOn == att)

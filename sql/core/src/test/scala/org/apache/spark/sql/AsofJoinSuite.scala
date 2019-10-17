@@ -19,13 +19,13 @@ package org.apache.spark.sql
 
 import java.sql.Timestamp
 
+import scala.concurrent.duration.Duration
+
 import org.apache.spark.sql.execution.joins._
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.SharedSQLContext
 
-import scala.concurrent.duration.Duration
-
-class MergeAsOfSuite extends QueryTest with SharedSQLContext{
+class AsofJoinSuite extends QueryTest with SharedSQLContext{
   import testImplicits._
 
   test("basic merge") {
@@ -37,11 +37,11 @@ class MergeAsOfSuite extends QueryTest with SharedSQLContext{
 
     val df2 = Seq(
       (new Timestamp(2001), 1, 4),
-      (new Timestamp(2001), 2, 5),
+      (new Timestamp(2001), 2, 5)
     ).toDF("time", "id", "v2")
 
     checkAnswer(
-      df1.mergeAsOf(df2, df1("time"), df2("time"), df1("id"), df2("id")),
+      df1.asofJoin(df2, df1("time"), df2("time"), df1("id"), df2("id")),
       Seq(
         Row(new Timestamp(2001), 1, 1.0, 4),
         Row(new Timestamp(2002), 1, 1.2, 4),
@@ -49,9 +49,12 @@ class MergeAsOfSuite extends QueryTest with SharedSQLContext{
       ))
 
     checkAnswer(
-      df1.select("time", "id").mergeAsOf(
-        df2.withColumn("v3", df2("v2") * 3 cast "Int"), df1("time"), df2("time"), df1("id"), df2("id")
-      ),
+      df1.select("time", "id").asofJoin(
+        df2.withColumn("v3", df2("v2") * 3 cast "Int"),
+        df1("time"),
+        df2("time"),
+        df1("id"),
+        df2("id")),
       Seq(
         Row(new Timestamp(2001), 1, 4, 12),
         Row(new Timestamp(2002), 1, 4, 12),
@@ -80,7 +83,7 @@ class MergeAsOfSuite extends QueryTest with SharedSQLContext{
     ).toDF("time", "ticker", "price", "quantity")
 
     checkAnswer(
-      trades.mergeAsOf(quotes, trades("time"), quotes("time"), trades("ticker"), quotes("ticker")),
+      trades.asofJoin(quotes, trades("time"), quotes("time"), trades("ticker"), quotes("ticker")),
       Seq(
         Row(new Timestamp(23), "MSFT", 51.95, 75, 51.95, 51.96),
         Row(new Timestamp(38), "MSFT", 51.95, 155, 51.97, 51.98),
@@ -99,11 +102,11 @@ class MergeAsOfSuite extends QueryTest with SharedSQLContext{
 
     val df2 = Seq(
       (new Timestamp(2001), 1, 5),
-      (new Timestamp(2001), 4, 4),
+      (new Timestamp(2001), 4, 4)
     ).toDF("time", "id", "v2")
 
     checkAnswer(
-      df1.mergeAsOf(df2, df1("time"), df2("time"), df1("id"), df2("id")),
+      df1.asofJoin(df2, df1("time"), df2("time"), df1("id"), df2("id")),
       Seq(
         Row(new Timestamp(2001), 1, 1.0, 5),
         Row(new Timestamp(2002), 1, 1.2, 5),
@@ -120,11 +123,11 @@ class MergeAsOfSuite extends QueryTest with SharedSQLContext{
 
     val df2 = Seq(
       (new Timestamp(2001), 3, 5),
-      (new Timestamp(2001), 4, 4),
+      (new Timestamp(2001), 4, 4)
     ).toDF("time", "id", "v2")
 
     checkAnswer(
-      df1.mergeAsOf(df2, df1("time"), df2("time"), df1("id"), df2("id")),
+      df1.asofJoin(df2, df1("time"), df2("time"), df1("id"), df2("id")),
       Seq(
         Row(new Timestamp(2001), 1, 1.0, null),
         Row(new Timestamp(2002), 1, 1.2, null),
@@ -153,7 +156,13 @@ class MergeAsOfSuite extends QueryTest with SharedSQLContext{
     ).toDF("time", "ticker", "price", "quantity")
 
     checkAnswer(
-      trades.mergeAsOf(quotes, trades("time"), quotes("time"), trades("ticker"), quotes("ticker"), "2ms"),
+      trades.asofJoin(
+        quotes,
+        trades("time"),
+        quotes("time"),
+        trades("ticker"),
+        quotes("ticker"),
+        "2ms"),
       Seq(
         Row(new Timestamp(23), "MSFT", 51.95, 75, 51.95, 51.96),
         Row(new Timestamp(38), "MSFT", 51.95, 155, null, null),
@@ -184,7 +193,14 @@ class MergeAsOfSuite extends QueryTest with SharedSQLContext{
     ).toDF("time", "ticker", "price", "quantity")
 
     checkAnswer(
-      trades.mergeAsOf(quotes, trades("time"), quotes("time"), trades("ticker"), quotes("ticker"), "10ms", false),
+      trades.asofJoin(
+        quotes,
+        trades("time"),
+        quotes("time"),
+        trades("ticker"),
+        quotes("ticker"),
+        "10ms",
+        false),
       Seq(
         Row(new Timestamp(23), "MSFT", 51.95, 75, null, null),
         Row(new Timestamp(38), "MSFT", 51.95, 155, 51.97, 51.98),
@@ -214,8 +230,18 @@ class MergeAsOfSuite extends QueryTest with SharedSQLContext{
       (new Timestamp(48), "AAPL", 98.00, 100)
     ).toDF("time", "ticker", "price", "quantity")
 
-    intercept[AnalysisException](trades.mergeAsOf(quotes, trades("time"), quotes("time"), trades("ticker"), quotes("ticker")))
-    intercept[AnalysisException](quotes.mergeAsOf(trades, quotes("time"), trades("time"), quotes("ticker"), trades("ticker")))
+    intercept[AnalysisException](trades.asofJoin(
+      quotes,
+      trades("time"),
+      quotes("time"),
+      trades("ticker"),
+      quotes("ticker")))
+    intercept[AnalysisException](quotes.asofJoin(
+      trades,
+      quotes("time"),
+      trades("time"),
+      quotes("ticker"),
+      trades("ticker")))
   }
 
   test("self asof on larger dataset") {
@@ -246,7 +272,7 @@ class MergeAsOfSuite extends QueryTest with SharedSQLContext{
     ).toDF("time", "id", "v")
 
     checkAnswer(
-      df.mergeAsOf(df, df("time"), df("time"), df("id"), df("id")),
+      df.asofJoin(df, df("time"), df("time"), df("id"), df("id")),
       Seq(
         Row(new Timestamp(100), 1, "a", "a"),
         Row(new Timestamp(117), 1, "b", "b"),
@@ -311,7 +337,7 @@ class MergeAsOfSuite extends QueryTest with SharedSQLContext{
     ).toDF("time", "id", "v2")
 
     checkAnswer(
-      df.mergeAsOf(df1, df("time"), df1("time"), df("id"), df1("id")),
+      df.asofJoin(df1, df("time"), df1("time"), df("id"), df1("id")),
       Seq(
         Row(new Timestamp(100), 1, "a", "b"),
         Row(new Timestamp(117), 1, "b", "b"),
@@ -376,7 +402,7 @@ class MergeAsOfSuite extends QueryTest with SharedSQLContext{
     ).toDF("time", "id", "v2")
 
     checkAnswer(
-      df1.mergeAsOf(df, df1("time"), df("time"), df1("id"), df("id")),
+      df1.asofJoin(df, df1("time"), df("time"), df1("id"), df("id")),
       Seq(
         Row(new Timestamp(100), 1, "b", "a"),
         Row(new Timestamp(101), 3, "b", null),
@@ -424,7 +450,7 @@ class MergeAsOfSuite extends QueryTest with SharedSQLContext{
     ).toDF("time", "id", "v3")
 
     checkAnswer(
-      df.mergeAsOf(df2, df("time"), df2("time"), df("id"), df2("id")),
+      df.asofJoin(df2, df("time"), df2("time"), df("id"), df2("id")),
       Seq(
         Row(new Timestamp(100), 1, "a", null),
         Row(new Timestamp(117), 1, "b", null),
@@ -489,7 +515,7 @@ class MergeAsOfSuite extends QueryTest with SharedSQLContext{
     ).toDF("time", "id", "v3")
 
     checkAnswer(
-      df2.mergeAsOf(df, df2("time"), df("time"), df2("id"), df("id")),
+      df2.asofJoin(df, df2("time"), df("time"), df2("id"), df("id")),
       Seq(
         Row(new Timestamp(100), 15, "c", "a"),
         Row(new Timestamp(101), 16, "c", null),
@@ -532,7 +558,15 @@ class MergeAsOfSuite extends QueryTest with SharedSQLContext{
       0.9
     )
 
-    compare(lData, rData, lData("time"), rData("time"), lData("id"), rData("id"), Long.MaxValue, true)
+    compare(
+      lData,
+      rData,
+      lData("time"),
+      rData("time"),
+      lData("id"),
+      rData("id"),
+      Long.MaxValue,
+      true)
   }
 
   test("generated intervalized test - sparse") {
@@ -560,7 +594,15 @@ class MergeAsOfSuite extends QueryTest with SharedSQLContext{
       0.1
     )
 
-    compare(lData, rData, lData("time"), rData("time"), lData("id"), rData("id"), Long.MaxValue, true)
+    compare(
+      lData,
+      rData,
+      lData("time"),
+      rData("time"),
+      lData("id"),
+      rData("id"),
+      Long.MaxValue,
+      true)
   }
 
   test("generated intervalized test - dense, high tolerance") {
@@ -588,7 +630,15 @@ class MergeAsOfSuite extends QueryTest with SharedSQLContext{
       0.9
     )
 
-    compare(lData, rData, lData("time"), rData("time"), lData("id"), rData("id"), 6*hours.toLong, true)
+    compare(
+      lData,
+      rData,
+      lData("time"),
+      rData("time"),
+      lData("id"),
+      rData("id"),
+      6 * hours.toLong,
+      true)
   }
 
   test("generated intervalized test - sparse, low tolerance") {
@@ -616,7 +666,15 @@ class MergeAsOfSuite extends QueryTest with SharedSQLContext{
       0.9
     )
 
-    compare(lData, rData, lData("time"), rData("time"), lData("id"), rData("id"), hours.toLong, true)
+    compare(
+      lData,
+      rData,
+      lData("time"),
+      rData("time"),
+      lData("id"),
+      rData("id"),
+      hours.toLong,
+      true)
   }
 
   test("generated intervalized test - dense, high tolerance, inexact matching") {
@@ -644,7 +702,15 @@ class MergeAsOfSuite extends QueryTest with SharedSQLContext{
       0.9
     )
 
-    compare(lData, rData, lData("time"), rData("time"), lData("id"), rData("id"), 6*hours.toLong, false)
+    compare(
+      lData,
+      rData,
+      lData("time"),
+      rData("time"),
+      lData("id"),
+      rData("id"),
+      6 * hours.toLong,
+      false)
   }
 
   def compare(
@@ -657,15 +723,38 @@ class MergeAsOfSuite extends QueryTest with SharedSQLContext{
     tolerance: Long = Long.MaxValue,
     exactMatches: Boolean = true
   ): Unit = {
-    val col = lData.columns.toList ++ rData.columns.map(c => "r"+c).filter(c => {c != "rtime" && c != "rid"}).toList
+    val col = lData.columns.toList ++
+      rData.columns.map(c => "r" + c).filter(c => {c != "rtime" && c != "rid"}).toList
     var res = lData
     var expected = lData
     if (tolerance == Long.MaxValue) {
-      res = lData.mergeAsOf(rData, leftOn, rightOn, leftBy, rightBy, "Inf", exactMatches).toDF(col: _*)
+      res = lData.asofJoin(
+        rData,
+        leftOn,
+        rightOn,
+        leftBy,
+        rightBy,
+        "Inf",
+        exactMatches).toDF(col: _*)
       expected = naive(lData, rData, leftOn, rightOn, leftBy, rightBy, tolerance, exactMatches)
     } else {
-      res = lData.mergeAsOf(rData, leftOn, rightOn, leftBy, rightBy, tolerance.toString+"ms", exactMatches).toDF(col: _*)
-      expected = naive(lData, rData, leftOn, rightOn, leftBy, rightBy, tolerance/1000, exactMatches)
+      res = lData.asofJoin(
+        rData,
+        leftOn,
+        rightOn,
+        leftBy,
+        rightBy,
+        tolerance.toString + "ms",
+        exactMatches).toDF(col: _*)
+      expected = naive(
+        lData,
+        rData,
+        leftOn,
+        rightOn,
+        leftBy,
+        rightBy,
+        tolerance / 1000,
+        exactMatches)
     }
     checkAnswer(res, expected)
   }
@@ -682,17 +771,19 @@ class MergeAsOfSuite extends QueryTest with SharedSQLContext{
     bias: Double
   ): DataFrame = {
     val frequency = Duration(freq).toSeconds
-    val delta = (end.getTime-begin.getTime)/1000
-    val dates = for (i <- spark.range(0, delta/frequency)) yield {begin.getTime/1000 + i*frequency}
+    val delta = (end.getTime-begin.getTime) / 1000
+    val dates = for (i <- spark.range(0, delta / frequency))
+      yield {begin.getTime / 1000 + i * frequency}
     var df = dates.toDF("time")
-    df = df.withColumn("ids", functions.array((0 to keys+1).map(functions.lit): _*))
+    df = df.withColumn("ids", functions.array((0 to keys + 1).map(functions.lit): _*))
     df = df.withColumn("id", functions.explode(df.col("ids"))).drop("ids")
     for (i <- 1 to values) {
-      df = df.withColumn(s"v$i", functions.rand(seed=seed)-0.5)
+      df = df.withColumn(s"v$i", functions.rand(seed = seed) - 0.5)
     }
     df = df.withColumn("time", functions.col("time").cast("timestamp"))
-    df = df.filter(functions.hour(df.col("time")) >= beginHour).filter(functions.hour(df.col("time")) < endHour)
-    df = df.filter(functions.rand(seed=seed) <= bias)
+    df = df.filter(functions.hour(df.col("time")) >= beginHour)
+      .filter(functions.hour(df.col("time")) < endHour)
+    df = df.filter(functions.rand(seed = seed) <= bias)
 
     df
   }
@@ -707,7 +798,7 @@ class MergeAsOfSuite extends QueryTest with SharedSQLContext{
     tolerance: Long = Long.MaxValue,
     exactMatches: Boolean): DataFrame = {
 
-    val rCol = right.columns.map(c => "r"+c).toList
+    val rCol = right.columns.map(c => "r" + c).toList
     val newRight = right.toDF(rCol: _*)
 
     val res = (tolerance, exactMatches) match {
@@ -723,12 +814,14 @@ class MergeAsOfSuite extends QueryTest with SharedSQLContext{
       )
       case(_, true) => left.join(
         newRight,
-        left("id") === newRight("rid") && left("time") >= newRight("rtime") && left("time").cast("long") <= newRight("rtime").cast("long") + tolerance,
+        left("id") === newRight("rid") && left("time") >= newRight("rtime") &&
+          left("time").cast("long") <= newRight("rtime").cast("long") + tolerance,
         "left_outer"
       )
       case(_, false) => left.join(
         newRight,
-        left("id") === newRight("rid") && left("time") > newRight("rtime") && left("time").cast("long") <= newRight("rtime").cast("long") + tolerance,
+        left("id") === newRight("rid") && left("time") > newRight("rtime") &&
+          left("time").cast("long") <= newRight("rtime").cast("long") + tolerance,
         "left_outer"
       )
     }
@@ -736,8 +829,12 @@ class MergeAsOfSuite extends QueryTest with SharedSQLContext{
     var maxTime = res.groupBy("time", "id").agg(functions.max(newRight("rtime"))).sort("id")
     maxTime = maxTime.toDF("time", "id", "maxtime")
 
-    var res2 = left.join(maxTime, Seq("time", "id"), joinType ="left")
-    res2 = res2.join(right, res2("id") === right("id") && res2("maxtime") === right("time"), joinType = "left")
+    var res2 = left.join(maxTime, Seq("time", "id"), joinType = "left")
+    res2 = res2.join(
+      right,
+      res2("id") === right("id") && res2("maxtime") === right("time"),
+      joinType = "left"
+    )
     val resCol = left.columns.toList ++ Seq("maxtime") ++ rCol
 
     res2.toDF(resCol: _*).drop("maxtime").drop("rtime").drop("rid")

@@ -33,7 +33,7 @@ import org.apache.spark.sql.execution.adaptive.LogicalQueryStage
 import org.apache.spark.sql.execution.columnar.{InMemoryRelation, InMemoryTableScanExec}
 import org.apache.spark.sql.execution.command._
 import org.apache.spark.sql.execution.exchange.ShuffleExchangeExec
-import org.apache.spark.sql.execution.joins.{BuildLeft, BuildRight, BuildSide, MergeAsOfJoinExec}
+import org.apache.spark.sql.execution.joins.{AsOfJoinExec, BuildLeft, BuildRight, BuildSide}
 import org.apache.spark.sql.execution.python._
 import org.apache.spark.sql.execution.streaming._
 import org.apache.spark.sql.execution.streaming.sources.MemoryPlan
@@ -740,8 +740,8 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
       case ExternalRDD(outputObjAttr, rdd) => ExternalRDDScanExec(outputObjAttr, rdd) :: Nil
       case r: LogicalRDD =>
         RDDScanExec(r.output, r.rdd, "ExistingRDD", r.outputPartitioning, r.outputOrdering) :: Nil
-      case logical.MergeAsOf(l, r, leftOn, rightOn, leftBy, rightBy, tolerance, exact) =>
-        joins.MergeAsOfJoinExec(planLater(l), planLater(r), leftOn, rightOn, leftBy, rightBy,
+      case logical.AsofJoin(l, r, leftOn, rightOn, leftBy, rightBy, tolerance, exact) =>
+        joins.AsOfJoinExec(planLater(l), planLater(r), leftOn, rightOn, leftBy, rightBy,
           tolerance, exact) :: Nil
       case _ => Nil
     }

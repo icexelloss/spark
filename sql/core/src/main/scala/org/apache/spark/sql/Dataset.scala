@@ -1206,7 +1206,7 @@ class Dataset[T] private[sql](
    * @param tolerance Long or TimeStamp, where the As-Of time difference within this range.
    * @param allowExactMatches If True, allow matching with the same 'on' value.
    */
-  def mergeAsOf[U](
+  def asofJoin[U](
       right: Dataset[U],
       leftOn: Column,
       rightOn: Column,
@@ -1215,7 +1215,7 @@ class Dataset[T] private[sql](
       tolerance: String = "Inf",
       allowExactMatches: Boolean = true): DataFrame = {
     withPlan {
-      MergeAsOf(logicalPlan, right.logicalPlan, leftOn.expr, rightOn.expr,
+      AsofJoin(logicalPlan, right.logicalPlan, leftOn.expr, rightOn.expr,
         leftBy.expr, rightBy.expr, tolerance, allowExactMatches)
     }
   }
