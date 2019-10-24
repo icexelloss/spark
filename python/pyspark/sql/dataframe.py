@@ -998,12 +998,17 @@ class DataFrame(object):
         Different from other join functions, joining is with inexact time matching criteria.
 
         :param right: Right side of the join.
-        :param leftOn: Field name to join on in left DataFrame.
-        :param rightOn: Field name to join on in right DataFrame.
-        :param leftBy: Field names to match on in the left DataFrame.
-        :param rightBy: Field names to match on in the right DataFrame.
-        :param tolerance: Long or TimeStamp, where the As-Of time difference within this range.
-        :param allowExactMatches: If True, allow matching with the same 'on' value.
+        :param leftOn: Column object to join on in left DataFrame.
+        :param rightOn: Column object to join on in right DataFrame.
+        :param leftBy: Column object to match on in the left DataFrame.
+        :param rightBy: Column object to match on in the right DataFrame.
+        :param tolerance: String or Long. If specified, the most recent row from the right
+            table will only be appended if it was within the specified time of the row from
+            the left table.
+        :param allowExactMatches: boolean (default True).
+            It specifies whether or not this function will join rows where timestamps exactly
+            match. False implies that rows in the left table will only be joined with rows in
+            the right table that have strictly smaller timestamps.
 
         >>> df1.asofJoin(df2, df1["time"], df2["time"], df1["id"], df2["id"]).collect()
         [Row(time=datetime.datetime(2001, 1, 1, 0, 0), id=1, v=1.0, v2=4),
