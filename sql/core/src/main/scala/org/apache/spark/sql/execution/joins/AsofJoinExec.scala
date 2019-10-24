@@ -29,7 +29,7 @@ import org.apache.spark.sql.execution._
  * This class takes the left and right plans and joins them using a grouped iterator. The "on"
  * value is compared to determine whether that right row will be merged with the left or not.
  */
-case class MergeAsOfJoinExec(
+case class AsOfJoinExec(
     left: SparkPlan,
     right: SparkPlan,
     leftOn: Expression,
@@ -81,7 +81,7 @@ case class MergeAsOfJoinExec(
     left.execute().zipPartitions(right.execute()) { (leftIter, rightIter) =>
       val resultProj: InternalRow => InternalRow = UnsafeProjection.create(output, output)
 
-      val scanner = new MergeAsOfScanner(
+      val scanner = new AsofJoinScanner(
         leftIter,
         rightIter,
         leftOn,
@@ -92,13 +92,13 @@ case class MergeAsOfJoinExec(
         right.output
       )
 
-      new MergeAsOfIterator(
+      new AsofJoinIterator(
         scanner, resultProj, tolerance, exactMatches, keyOrdering, rightNullRow).toScala
     }
   }
 }
 
-private class MergeAsOfScanner(
+private class AsofJoinScanner(
     leftIter: Iterator[InternalRow],
     rightIter: Iterator[InternalRow],
     leftOn: Expression,
@@ -117,8 +117,8 @@ private class MergeAsOfScanner(
 }
 
 
-private class MergeAsOfIterator(
-    maoScanner: MergeAsOfScanner,
+private class AsofJoinIterator(
+    maoScanner: AsofJoinScanner,
     resultProj: InternalRow => InternalRow,
     tolerance: Long,
     exactMatches: Boolean,

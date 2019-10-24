@@ -17,9 +17,6 @@
 
 package org.apache.spark.sql.catalyst.plans.logical
 
-import scala.concurrent.duration.Duration
-
-import org.apache.spark.sql.AnalysisException
 import org.apache.spark.sql.catalog.v2.{Identifier, TableCatalog}
 import org.apache.spark.sql.catalog.v2.expressions.Transform
 import org.apache.spark.sql.catalyst.AliasIdentifier
@@ -382,45 +379,6 @@ case class Join(
       || e.asInstanceOf[JoinHint].leftHint.isDefined
       || e.asInstanceOf[JoinHint].rightHint.isDefined)
   }
-}
-
-object MergeAsOf {
-  def apply(left: LogicalPlan, right: LogicalPlan, leftOn: Expression, rightOn: Expression,
-            leftBy: Expression, rightBy: Expression, tolerance: String,
-            allowExactMatches: Boolean): MergeAsOf = {
-    val duration = if (Duration(tolerance).isFinite) {
-      Duration(tolerance).toMillis
-    } else {
-      Long.MaxValue
-    }
-
-    if (leftOn.dataType != TimestampType) {
-      throw new AnalysisException("cannot resolve due to data type mismatch: " +
-        s"${leftOn.dataType} should be a TimestampType")
-    } else if (rightOn.dataType != TimestampType) {
-      throw new AnalysisException("cannot resolve due to data type mismatch: " +
-        s"${rightOn.dataType} should be a TimestampType")
-    }
-
-    new MergeAsOf(left, right, leftOn, rightOn, leftBy, rightBy, duration, allowExactMatches)
-  }
-}
-
-case class MergeAsOf(
-    left: LogicalPlan,
-    right: LogicalPlan,
-    leftOn: Expression,
-    rightOn: Expression,
-    leftBy: Expression,
-    rightBy: Expression,
-    tolerance: Long,
-    allowExactMatches: Boolean)
-  extends BinaryNode {
-
-  // TODO polymorphic keys
-  override def output: Seq[Attribute] = left.output ++ right.output.map(_.withNullability(true))
-
-  def duplicateResolved: Boolean = left.outputSet.intersect(right.outputSet).isEmpty
 }
 
 /**

@@ -991,6 +991,36 @@ class DataFrame(object):
         return DataFrame(jdf, self.sql_ctx)
 
     @ignore_unicode_prefix
+    @since("2.4.3")
+    def asofJoin(self, right, leftOn, rightOn, leftBy, rightBy,
+                 tolerance = "Inf", allowExactMatches = True):
+        """Merge As-Of Join with another :class:`DataFrame`, using the given join expression.
+        Different from other join functions, joining is with inexact time matching criteria.
+
+        :param right: Right side of the join.
+        :param leftOn: Column object to join on in left DataFrame.
+        :param rightOn: Column object to join on in right DataFrame.
+        :param leftBy: Column object to match on in the left DataFrame.
+        :param rightBy: Column object to match on in the right DataFrame.
+        :param tolerance: String or Long. If specified, the most recent row from the right
+            table will only be appended if it was within the specified time of the row from
+            the left table.
+        :param allowExactMatches: boolean (default True).
+            It specifies whether or not this function will join rows where timestamps exactly
+            match. False implies that rows in the left table will only be joined with rows in
+            the right table that have strictly smaller timestamps.
+
+        >>> df1.asofJoin(df2, df1["time"], df2["time"], df1["id"], df2["id"]).collect()
+        [Row(time=datetime.datetime(2001, 1, 1, 0, 0), id=1, v=1.0, v2=4),
+         Row(time=datetime.datetime(2002, 1, 1, 0, 0), id=1, v=1.2, v2=4),
+         Row(time=datetime.datetime(2001, 1, 1, 0, 0), id=2, v=1.1, v2=5)]
+        """
+
+        jdf = self._jdf.asofJoin(right._jdf, leftOn._jc, rightOn._jc, leftBy._jc, rightBy._jc,
+            tolerance, allowExactMatches)
+        return DataFrame(jdf, self.sql_ctx)
+
+    @ignore_unicode_prefix
     @since(1.3)
     def join(self, other, on=None, how=None):
         """Joins with another :class:`DataFrame`, using the given join expression.
