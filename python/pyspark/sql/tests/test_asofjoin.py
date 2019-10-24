@@ -21,38 +21,39 @@ import pandas as pd
 from datetime import datetime
 
 class AsofJoinTests(ReusedSQLTestCase):
-
-    def data(self):
-        pdf1 = pd.DataFrame({"time": [datetime(2001,1,1), datetime(2001,1,1), datetime(2002,1,1)],
+    @property
+    def left(self):
+        pdf = pd.DataFrame({"time": [datetime(2001,1,1), datetime(2001,1,1), datetime(2002,1,1)],
                             "id": [1, 2, 1],
                             "v": [1.0, 1.1, 1.2]}, columns=["time", "id", "v"])
-        pdf2 = pd.DataFrame({"time": [datetime(2001,1,1), datetime(2001,1,1)],
+        return self.spark.createDataFrame(pdf)
+    @property
+    def right(self):
+        pdf = pd.DataFrame({"time": [datetime(2001,1,1), datetime(2001,1,1)],
                             "id": [1, 2],
                             "v2": [4, 5]}, columns=["time", "id", "v2"])
-        return pdf1, pdf2
+        return self.spark.createDataFrame(pdf)
 
     def test_invalid_join(self):
-        pdf1, pdf2 = self.data()
-        df1 = self.spark.createDataFrame(pdf1)
-        df2 = self.spark.createDataFrame(pdf2)
+        df1 = self.left
+        df2 = self.right
         self.assertRaises(TypeError, lambda: df1.asofJoin(df2, df1["time"], df2["id"]).count())
 
     def test_join_with_on_by(self):
-        pdf1, pdf2 = self.data()
-        df1 = self.spark.createDataFrame(pdf1)
-        df2 = self.spark.createDataFrame(pdf2)
+        df1 = self.left
+        df2 = self.right
         actual = df1.asofJoin(df2, df1["time"], df2["time"], df1["id"],
             df2["id"]).toPandas().sort_values(by='time').reset_index(drop=True)
-        self.assertTrue(actual.equals(pd.merge_asof(pdf1, pdf2, on="time", by="id")))
+        self.assertTrue(actual.equals(pd.merge_asof(df1.toPandas(), df2.toPandas()
+            , on="time", by="id")))
 
     def test_join_with_all_params(self):
-        pdf1, pdf2 = self.data()
-        df1 = self.spark.createDataFrame(pdf1)
-        df2 = self.spark.createDataFrame(pdf2)
+        df1 = self.left
+        df2 = self.right
         actual = df1.asofJoin(df2, df1["time"], df2["time"], df1["id"], df2["id"],
             "1d", True).toPandas().sort_values(by='time').reset_index(drop=True)
-        self.assertTrue(actual.equals(pd.merge_asof(pdf1, pdf2, on="time", by="id",
-            tolerance=pd.Timedelta('1d'), allow_exact_matches=True)))
+        self.assertTrue(actual.equals(pd.merge_asof(df1.toPandas(), df2.toPandas(),
+            on="time", by="id",tolerance=pd.Timedelta('1d'), allow_exact_matches=True)))
 
 if __name__ == "__main__":
     import unittest
