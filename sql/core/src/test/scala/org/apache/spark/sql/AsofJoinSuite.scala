@@ -244,6 +244,35 @@ class AsofJoinSuite extends QueryTest with SharedSQLContext{
       trades("ticker")))
   }
 
+  test("merge_asof with different types in 'by' key") {
+    val quotes = Seq(
+      (new Timestamp(23), 1, 720.50, 720.93),
+      (new Timestamp(23), 2, 51.95, 51.96),
+      (new Timestamp(48), 2, 51.97, 51.98),
+      (new Timestamp(48), 2, 51.99, 52.00)
+    ).toDF("time", "ticker", "bid", "ask")
+
+    val trades = Seq(
+      (new Timestamp(23), 2L, 51.95, 75),
+      (new Timestamp(38), 2L, 51.95, 155),
+      (new Timestamp(48), 1L, 720.77, 100),
+      (new Timestamp(48), 1L, 720.92, 100)
+    ).toDF("time", "ticker", "price", "quantity")
+
+    intercept[AnalysisException](trades.asofJoin(
+      quotes,
+      trades("time"),
+      quotes("time"),
+      trades("ticker"),
+      quotes("ticker")))
+    intercept[AnalysisException](quotes.asofJoin(
+      trades,
+      quotes("time"),
+      trades("time"),
+      quotes("ticker"),
+      trades("ticker")))
+  }
+
   test("self asof on larger dataset") {
     val df = Seq(
       (new Timestamp(100), 1, "a"),

@@ -41,6 +41,11 @@ object AsofJoin {
         s"${rightOn.dataType} should be a TimestampType")
     }
 
+    if (leftBy.dataType != rightBy.dataType) {
+      throw new AnalysisException("cannot resolve due to data type mismatch: " +
+        s"${leftBy.dataType} differs from ${rightBy.dataType} in 'by'")
+    }
+
     new AsofJoin(left, right, leftOn, rightOn, leftBy, rightBy, duration, allowExactMatches)
   }
 }
