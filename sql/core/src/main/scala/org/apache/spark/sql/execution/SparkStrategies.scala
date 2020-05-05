@@ -39,7 +39,7 @@ import org.apache.spark.sql.execution.streaming._
 import org.apache.spark.sql.execution.streaming.sources.MemoryPlan
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.streaming.{OutputMode, StreamingQuery}
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{NullType, StructType}
 
 /**
  * Converts a logical plan into zero or more SparkPlans.  This API is exposed for experimenting
@@ -741,8 +741,13 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
       case r: LogicalRDD =>
         RDDScanExec(r.output, r.rdd, "ExistingRDD", r.outputPartitioning, r.outputOrdering) :: Nil
       case logical.AsofJoin(l, r, leftOn, rightOn, leftBy, rightBy, tolerance, exact) =>
-        joins.AsOfJoinExec(planLater(l), planLater(r), leftOn, rightOn, leftBy, rightBy,
-          tolerance, exact) :: Nil
+        if (leftBy.dataType == NullType) {
+          joins.BroadcastAsOfJoinExec(
+            planLater(l), planLater(r), leftOn, rightOn, leftBy, rightBy, tolerance, exact) :: Nil
+        } else {
+          joins.AsOfJoinExec(
+            planLater(l), planLater(r), leftOn, rightOn, leftBy, rightBy, tolerance, exact) :: Nil
+        }
       case _ => Nil
     }
   }

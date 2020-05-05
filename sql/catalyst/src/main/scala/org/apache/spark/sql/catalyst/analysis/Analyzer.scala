@@ -2294,9 +2294,12 @@ class Analyzer(
         if left.resolved && right.resolved => {
           val lUniqueOutput = left.output.filterNot(att => leftBy == att || leftOn == att)
           val rUniqueOutput = right.output.filterNot(att => rightBy == att || rightOn == att)
-
-          val output = Seq(leftOn.asInstanceOf[Attribute]) ++
-            leftBy.map {expr => expr.asInstanceOf[Attribute]} ++ lUniqueOutput ++ rUniqueOutput
+          val output = if (leftBy.dataType != NullType) {
+            Seq(leftOn.asInstanceOf[Attribute]) ++
+              leftBy.map { expr => expr.asInstanceOf[Attribute] } ++ lUniqueOutput ++ rUniqueOutput
+          } else {
+            Seq(leftOn.asInstanceOf[Attribute]) ++ lUniqueOutput ++ rUniqueOutput
+          }
           Project(output, plan)
         }
       case _ => plan

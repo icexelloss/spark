@@ -98,7 +98,7 @@ case class AsOfJoinExec(
   }
 }
 
-private class AsofJoinScanner(
+class AsofJoinScanner(
     leftIter: Iterator[InternalRow],
     rightIter: Iterator[InternalRow],
     leftOn: Expression,
@@ -117,7 +117,7 @@ private class AsofJoinScanner(
 }
 
 
-private class AsofJoinIterator(
+class AsofJoinIterator(
     maoScanner: AsofJoinScanner,
     resultProj: InternalRow => InternalRow,
     tolerance: Long,
