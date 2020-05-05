@@ -21,14 +21,22 @@ import java.sql.Timestamp
 
 import scala.concurrent.duration.Duration
 
-import org.apache.spark.sql.execution.joins._
-import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.test.SharedSQLContext
+import org.apache.spark.sql.types.NullType
 
-class AsofJoinSuite extends QueryTest with SharedSQLContext{
+class AsofJoinSuite extends QueryTest with SharedSQLContext {
   import testImplicits._
 
-  test("basic merge") {
+
+  val seconds: Long = 1000
+  val minutes: Long = 60 * seconds
+  val hours: Long = 60 * minutes
+  val days: Long = 24 * hours
+  val months: Long = 30 * days
+  val years: Long = 12 * months
+
+  test("basic") {
     val df1 = Seq(
       (new Timestamp(2001), 1, 1.0),
       (new Timestamp(2001), 2, 1.1),
@@ -62,7 +70,7 @@ class AsofJoinSuite extends QueryTest with SharedSQLContext{
       ))
   }
 
-  test("default merge_asof") {
+  test("default asof join") {
     val quotes = Seq(
       (new Timestamp(23), "GOOG", 720.50, 720.93),
       (new Timestamp(23), "MSFT", 51.95, 51.96),
@@ -135,7 +143,7 @@ class AsofJoinSuite extends QueryTest with SharedSQLContext{
       ))
   }
 
-  test("merge_asof tolerance") {
+  test("asof join tolerance") {
     val quotes = Seq(
       (new Timestamp(23), "GOOG", 720.50, 720.93),
       (new Timestamp(23), "MSFT", 51.95, 51.96),
@@ -172,7 +180,7 @@ class AsofJoinSuite extends QueryTest with SharedSQLContext{
       ))
   }
 
-  test("merge_asof tolerance allow exact matches") {
+  test("asof join tolerance allow exact matches") {
     val quotes = Seq(
       (new Timestamp(23), "GOOG", 720.50, 720.93),
       (new Timestamp(23), "MSFT", 51.95, 51.96),
@@ -210,7 +218,7 @@ class AsofJoinSuite extends QueryTest with SharedSQLContext{
       ))
   }
 
-  test("merge_asof with non timestamp types") {
+  test("asof join with non timestamp types") {
     val quotes = Seq(
       (1, "GOOG", 720.50, 720.93),
       (2, "MSFT", 51.95, 51.96),
@@ -244,7 +252,7 @@ class AsofJoinSuite extends QueryTest with SharedSQLContext{
       trades("ticker")))
   }
 
-  test("merge_asof with different types in 'by' key") {
+  test("asof join with different types in 'by' key") {
     val quotes = Seq(
       (new Timestamp(23), 1, 720.50, 720.93),
       (new Timestamp(23), 2, 51.95, 51.96),
@@ -273,7 +281,7 @@ class AsofJoinSuite extends QueryTest with SharedSQLContext{
       trades("ticker")))
   }
 
-  test("self asof on larger dataset") {
+  test("self asof join on larger dataset") {
     val df = Seq(
       (new Timestamp(100), 1, "a"),
       (new Timestamp(117), 1, "b"),
@@ -329,7 +337,7 @@ class AsofJoinSuite extends QueryTest with SharedSQLContext{
       ))
   }
 
-  test("asof on left superset on larger dataset") {
+  test("asof join on left superset on larger dataset") {
     val df = Seq(
       (new Timestamp(100), 1, "a"),
       (new Timestamp(117), 1, "b"),
@@ -394,7 +402,7 @@ class AsofJoinSuite extends QueryTest with SharedSQLContext{
       ))
   }
 
-  test("asof on right superset on larger dataset") {
+  test("asof join on right superset on larger dataset") {
     val df = Seq(
       (new Timestamp(100), 1, "a"),
       (new Timestamp(117), 1, "b"),
@@ -442,7 +450,7 @@ class AsofJoinSuite extends QueryTest with SharedSQLContext{
       ))
   }
 
-  test("asof on left intersect on larger dataset") {
+  test("asof join on left intersect on larger dataset") {
     val df = Seq(
       (new Timestamp(100), 1, "a"),
       (new Timestamp(117), 1, "b"),
@@ -507,7 +515,7 @@ class AsofJoinSuite extends QueryTest with SharedSQLContext{
       ))
   }
 
-  test("asof on right intersect on larger dataset") {
+  test("asof join on right intersect on larger dataset") {
     val df = Seq(
       (new Timestamp(100), 1, "a"),
       (new Timestamp(117), 1, "b"),
@@ -555,18 +563,105 @@ class AsofJoinSuite extends QueryTest with SharedSQLContext{
       ))
   }
 
-  val seconds: Long = 1000
-  val minutes: Long = 60*seconds
-  val hours: Long = 60*minutes
-  val days: Long = 24*hours
-  val months: Long = 30*days
-  val years: Long = 12*months
+
+  test("broadcast asof join") {
+    val df = Seq(
+      (new Timestamp(100), 1, 1.0),
+      (new Timestamp(100), 1, 2.0),
+      (new Timestamp(100), 2, 3.0),
+      (new Timestamp(110), 1, 4.0),
+      (new Timestamp(110), 2, 5.0)
+    ).toDF("time", "id", "v")
+
+    val df2 = Seq(
+      (new Timestamp(100), 10.0),
+      (new Timestamp(105), 20.0),
+      (new Timestamp(115), 15.0)
+    ).toDF("time", "v2")
+
+
+    val result = df.asofJoin(df2, df("time"), df2("time"), lit(null), lit(null))
+
+    checkAnswer(
+      result,
+      Seq(
+        Row(new Timestamp(100), 1, 1.0, 10.0),
+        Row(new Timestamp(100), 1, 2.0, 10.0),
+        Row(new Timestamp(100), 2, 3.0, 10.0),
+        Row(new Timestamp(110), 1, 4.0, 20.0),
+        Row(new Timestamp(110), 2, 5.0, 20.0)
+      ))
+  }
+
+  test("broadcast asof join - right unsorted") {
+    val df = Seq(
+      (new Timestamp(100), 1, 1.0),
+      (new Timestamp(100), 1, 2.0),
+      (new Timestamp(100), 2, 3.0),
+      (new Timestamp(110), 1, 4.0),
+      (new Timestamp(110), 2, 5.0)
+    ).toDF("time", "id", "v")
+
+    val df2 = Seq(
+      (new Timestamp(100), new Timestamp(105), 20.0),
+      (new Timestamp(105), new Timestamp(100), 10.0),
+      (new Timestamp(115), new Timestamp(115), 15.0)
+    ).toDF("other_time", "time", "v2")
+
+    val result = df.asofJoin(df2, df("time"), df2("time"), lit(null), lit(null))
+
+    checkAnswer(
+      result,
+      Seq(
+        Row(new Timestamp(100), 1, 1.0, new Timestamp(105), 10.0),
+        Row(new Timestamp(100), 1, 2.0, new Timestamp(105), 10.0),
+        Row(new Timestamp(100), 2, 3.0, new Timestamp(105), 10.0),
+        Row(new Timestamp(110), 1, 4.0, new Timestamp(100), 20.0),
+        Row(new Timestamp(110), 2, 5.0, new Timestamp(100), 20.0)
+      ))
+  }
+
+  test("generated intervalized test - broadcast") {
+    val lData = genIntervalizedData(
+      freq = "15min",
+      begin = new Timestamp(50*years),
+      end = new Timestamp(50*years + 1*months),
+      beginHour = 9,
+      endHour = 17,
+      keys = 50,
+      values = 1,
+      123,
+      0.9
+    )
+
+    val rData = genIntervalizedData(
+      freq = "15min",
+      begin = new Timestamp(50*years),
+      end = new Timestamp(50*years + 1*months),
+      beginHour = 9,
+      endHour = 17,
+      keys = 1,
+      values = 1,
+      456,
+      0.9
+    ).drop("id")
+
+    compare(
+      lData,
+      rData,
+      lData("time"),
+      rData("time"),
+      lit(null),
+      lit(null),
+      Long.MaxValue,
+      true)
+  }
 
   test("generated intervalized test - dense") {
     val lData = genIntervalizedData(
       "15min",
-      new Timestamp(46*years),
-      new Timestamp(47*years + months),
+      new Timestamp(50*years),
+      new Timestamp(50*years + 1*months),
       9,
       17,
       50,
@@ -577,8 +672,8 @@ class AsofJoinSuite extends QueryTest with SharedSQLContext{
 
     val rData = genIntervalizedData(
       "15min",
-      new Timestamp(46*years),
-      new Timestamp(46*years + 10*months),
+      new Timestamp(50*years),
+      new Timestamp(50*years + 1*months),
       9,
       17,
       100,
@@ -601,8 +696,8 @@ class AsofJoinSuite extends QueryTest with SharedSQLContext{
   test("generated intervalized test - sparse") {
     val lData = genIntervalizedData(
       "15min",
-      new Timestamp(20*years),
-      new Timestamp(20*years + 6*months),
+      new Timestamp(50*years),
+      new Timestamp(50*years + 1*months),
       9,
       17,
       50,
@@ -613,8 +708,8 @@ class AsofJoinSuite extends QueryTest with SharedSQLContext{
 
     val rData = genIntervalizedData(
       "15min",
-      new Timestamp(20*years),
-      new Timestamp(21*years),
+      new Timestamp(50*years),
+      new Timestamp(50*years + 1*months),
       9,
       17,
       100,
@@ -637,8 +732,8 @@ class AsofJoinSuite extends QueryTest with SharedSQLContext{
   test("generated intervalized test - dense, high tolerance") {
     val lData = genIntervalizedData(
       "15min",
-      new Timestamp(35*years),
-      new Timestamp(35*years + months),
+      new Timestamp(50*years),
+      new Timestamp(50*years + months),
       9,
       17,
       50,
@@ -649,8 +744,8 @@ class AsofJoinSuite extends QueryTest with SharedSQLContext{
 
     val rData = genIntervalizedData(
       "30min",
-      new Timestamp(35*years),
-      new Timestamp(35*years + 10*months),
+      new Timestamp(50*years),
+      new Timestamp(50*years + months),
       9,
       17,
       100,
@@ -673,8 +768,8 @@ class AsofJoinSuite extends QueryTest with SharedSQLContext{
   test("generated intervalized test - sparse, low tolerance") {
     val lData = genIntervalizedData(
       "15min",
-      new Timestamp(78*years),
-      new Timestamp(78*years + months),
+      new Timestamp(50*years),
+      new Timestamp(50*years + months),
       9,
       17,
       50,
@@ -685,8 +780,8 @@ class AsofJoinSuite extends QueryTest with SharedSQLContext{
 
     val rData = genIntervalizedData(
       "15min",
-      new Timestamp(77*years),
-      new Timestamp(78*years + 10*months),
+      new Timestamp(50*years),
+      new Timestamp(50*years + 1*months),
       9,
       17,
       100,
@@ -709,8 +804,8 @@ class AsofJoinSuite extends QueryTest with SharedSQLContext{
   test("generated intervalized test - dense, high tolerance, inexact matching") {
     val lData = genIntervalizedData(
       "15min",
-      new Timestamp(60*years),
-      new Timestamp(62*years),
+      new Timestamp(50*years),
+      new Timestamp(50*years + 1*months),
       9,
       17,
       50,
@@ -721,8 +816,8 @@ class AsofJoinSuite extends QueryTest with SharedSQLContext{
 
     val rData = genIntervalizedData(
       "30min",
-      new Timestamp(60*years + 6*months),
-      new Timestamp(61*years + 6*months),
+      new Timestamp(50*years),
+      new Timestamp(50*years + 1*months),
       9,
       17,
       100,
@@ -752,8 +847,11 @@ class AsofJoinSuite extends QueryTest with SharedSQLContext{
     tolerance: Long = Long.MaxValue,
     exactMatches: Boolean = true
   ): Unit = {
-    val col = lData.columns.toList ++
-      rData.columns.map(c => "r" + c).filter(c => {c != "rtime" && c != "rid"}).toList
+    val col = {
+      lData.columns.toList ++
+        rData.columns.map(c => "r" + c).filter(c => {c != "rtime" && c != "rid"}).toList
+    }
+
     var res = lData
     var expected = lData
     if (tolerance == Long.MaxValue) {
@@ -804,7 +902,7 @@ class AsofJoinSuite extends QueryTest with SharedSQLContext{
     val dates = for (i <- spark.range(0, delta / frequency))
       yield {begin.getTime / 1000 + i * frequency}
     var df = dates.toDF("time")
-    df = df.withColumn("ids", functions.array((0 to keys + 1).map(functions.lit): _*))
+    df = df.withColumn("ids", functions.array((0 until keys).map(functions.lit): _*))
     df = df.withColumn("id", functions.explode(df.col("ids"))).drop("ids")
     for (i <- 1 to values) {
       df = df.withColumn(s"v$i", functions.rand(seed = seed) - 0.5)
@@ -830,43 +928,83 @@ class AsofJoinSuite extends QueryTest with SharedSQLContext{
     val rCol = right.columns.map(c => "r" + c).toList
     val newRight = right.toDF(rCol: _*)
 
-    val res = (tolerance, exactMatches) match {
-      case (Long.MaxValue, true) => left.join(
-        newRight,
-        left("id") === newRight("rid") && left("time") >= newRight("rtime"),
-        "left_outer"
-      )
-      case (Long.MaxValue, false) => left.join(
-        newRight,
-        left("id") === newRight("rid") && left("time") > newRight("rtime"),
-        "left_outer"
-      )
-      case(_, true) => left.join(
-        newRight,
-        left("id") === newRight("rid") && left("time") >= newRight("rtime") &&
-          left("time").cast("long") <= newRight("rtime").cast("long") + tolerance,
-        "left_outer"
-      )
-      case(_, false) => left.join(
-        newRight,
-        left("id") === newRight("rid") && left("time") > newRight("rtime") &&
-          left("time").cast("long") <= newRight("rtime").cast("long") + tolerance,
-        "left_outer"
-      )
+    val newLeft = if (leftBy.expr.dataType == NullType) {
+      left.withColumn("tid", lit(0))
+    } else {
+      left
+    }
+
+    val res = if (leftBy.expr.dataType != NullType) {
+      (tolerance, exactMatches) match {
+        case (Long.MaxValue, true) => left.join(
+          newRight,
+          left("id") === newRight("rid") && left("time") >= newRight("rtime"),
+          "left_outer"
+        )
+        case (Long.MaxValue, false) => left.join(
+          newRight,
+          left("id") === newRight("rid") && left("time") > newRight("rtime"),
+          "left_outer"
+        )
+        case (_, true) => left.join(
+          newRight,
+          left("id") === newRight("rid") && left("time") >= newRight("rtime") &&
+            left("time").cast("long") <= newRight("rtime").cast("long") + tolerance,
+          "left_outer"
+        )
+        case (_, false) => left.join(
+          newRight,
+          left("id") === newRight("rid") && left("time") > newRight("rtime") &&
+            left("time").cast("long") <= newRight("rtime").cast("long") + tolerance,
+          "left_outer"
+        )
+      }
+    } else {
+      (tolerance, exactMatches) match {
+        case (Long.MaxValue, true) => left.join(
+          newRight,
+          left("time") >= newRight("rtime"),
+          "left_outer"
+        )
+        case (Long.MaxValue, false) => left.join(
+          newRight,
+          left("time") > newRight("rtime"),
+          "left_outer"
+        )
+        case (_, true) => left.join(
+          newRight,
+          left("time") >= newRight("rtime") &&
+            left("time").cast("long") <= newRight("rtime").cast("long") + tolerance,
+          "left_outer"
+        )
+        case (_, false) => left.join(
+          newRight,
+          left("time") > newRight("rtime") &&
+            left("time").cast("long") <= newRight("rtime").cast("long") + tolerance,
+          "left_outer"
+        )
+      }
     }
 
     var maxTime = res.groupBy("time", "id").agg(functions.max(newRight("rtime"))).sort("id")
     maxTime = maxTime.toDF("time", "id", "maxtime")
 
     var res2 = left.join(maxTime, Seq("time", "id"), joinType = "left")
-    res2 = res2.join(
-      right,
-      res2("id") === right("id") && res2("maxtime") === right("time"),
-      joinType = "left"
-    )
+    if (leftBy.expr.dataType != NullType) {
+      res2 = res2.join(
+        right,
+        res2("id") === right("id") && res2("maxtime") === right("time"),
+        joinType = "left"
+      )
+    } else {
+      res2 = res2.join(
+        right,
+        res2("maxtime") === right("time"),
+        joinType = "left"
+      )
+    }
     val resCol = left.columns.toList ++ Seq("maxtime") ++ rCol
 
     res2.toDF(resCol: _*).drop("maxtime").drop("rtime").drop("rid")
   }
-
 }
